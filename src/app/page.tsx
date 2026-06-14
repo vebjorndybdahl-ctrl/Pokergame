@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createSeries } from "./actions";
 import JoinForm from "./JoinForm";
 
@@ -80,6 +81,23 @@ export default function Home() {
 
       {/* Join with a code */}
       <JoinForm />
+
+      {/* Learn-to-play entry point */}
+      <Link
+        href="/laer"
+        className="glass card-rise animate-rise mt-5 flex items-center justify-between gap-4 rounded-2xl px-6 py-5 hover:border-amber-300/30"
+        style={{ animationDelay: "0.2s" }}
+      >
+        <div>
+          <div className="flex items-center gap-2 font-bold text-white">
+            <span className="gold-text">♦</span> Ny til poker?
+          </div>
+          <p className="mt-0.5 text-sm text-zinc-400">
+            Interaktiv guide fra reglene til ekte pokerteori.
+          </p>
+        </div>
+        <span className="shrink-0 text-amber-200/80">Lær poker →</span>
+      </Link>
 
       <p className="animate-rise mx-auto mt-6 max-w-sm text-center text-xs leading-relaxed text-zinc-500">
         Ingen registrering. Del koden (eller lenken) med gjengen — alle med den
