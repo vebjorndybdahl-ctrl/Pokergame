@@ -1,9 +1,20 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSeriesByToken, getDashboard } from "@/lib/data";
+import { requireUser } from "@/lib/auth";
+import { getMembership } from "@/lib/guards";
+import {
+  getSeriesByToken,
+  getDashboard,
+  getSeriesMembers,
+  getInvitableFriends,
+} from "@/lib/data";
 import { formatMoney, formatAmount, netColor, formatDate } from "@/lib/format";
+import { seriesDefaults, blindsLabel, gameTypeLabel } from "@/lib/rules";
 import CopyButton from "./CopyButton";
 import AddGameForm from "./AddGameForm";
+import JoinSeriesPrompt from "./JoinSeriesPrompt";
+import RulesForm from "./RulesForm";
+import InviteFriends from "./InviteFriends";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -13,38 +24,86 @@ export default async function SeriesPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
+  const user = await requireUser();
   const series = await getSeriesByToken(token);
   if (!series) notFound();
 
-  const { players, standings, games } = await getDashboard(series);
+  const membership = await getMembership(user.id, series.id);
+
+  // Non-member with a valid link → offer to join.
+  if (!membership) {
+    return (
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-16 text-center">
+        <div className="animate-rise">
+          <div className="text-5xl text-emerald-500/20">♠</div>
+          <h1 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-black text-white">
+            {series.name}
+          </h1>
+          <p className="mt-2 text-zinc-400">
+            Du er ikke medlem av denne serien ennå.
+          </p>
+          <div className="mt-6 flex justify-center">
+            <JoinSeriesPrompt token={token} seriesName={series.name} />
+          </div>
+          <Link
+            href="/dashboard"
+            className="mt-4 inline-block text-sm text-zinc-500 hover:text-zinc-300"
+          >
+            ← Til dashbordet
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  const isOwner = membership.role === "owner";
+  const [{ players, standings, games }, members, invitable] = await Promise.all(
+    [
+      getDashboard(series),
+      getSeriesMembers(series.id),
+      getInvitableFriends(user.id, series.id),
+    ],
+  );
+
   const cur = series.currency;
   const ranked = standings.filter((s) => s.gamesPlayed > 0);
   const biggestPot = games.reduce((m, g) => Math.max(m, g.pot), 0);
+  const defaults = seriesDefaults(series);
+  const ruleChips = [
+    defaults.buyIn != null
+      ? { label: "Innkjøp", value: formatAmount(defaults.buyIn, cur) }
+      : null,
+    blindsLabel(defaults)
+      ? { label: "Blinds", value: `${blindsLabel(defaults)} ${cur}` }
+      : null,
+    gameTypeLabel(defaults.gameType)
+      ? { label: "Type", value: gameTypeLabel(defaults.gameType)! }
+      : null,
+    defaults.location ? { label: "Sted", value: defaults.location } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-10">
-      {/* Header */}
-      <header className="animate-rise mb-9">
+      <header className="animate-rise mb-8">
         <Link
-          href="/"
-          className="text-xs font-medium tracking-wide text-zinc-500 transition hover:text-amber-200"
+          href="/dashboard"
+          className="text-xs font-medium text-zinc-500 transition hover:text-amber-200"
         >
-          <span className="gold-text">♠ Alpha</span> Poker
+          ← Dashbord
         </Link>
         <h1 className="mt-1.5 font-[family-name:var(--font-display)] text-4xl font-black tracking-tight text-white sm:text-5xl">
           {series.name}
         </h1>
 
-        {/* Stat chips */}
         <div className="mt-5 flex flex-wrap gap-2.5 text-sm">
           <Stat label="Spill" value={String(games.length)} />
-          <Stat label="Spillere" value={String(players.length)} />
+          <Stat label="Medlemmer" value={String(members.length)} />
           {biggestPot > 0 && (
             <Stat label="Største pott" value={formatAmount(biggestPot, cur)} />
           )}
         </div>
 
-        {/* Share card: join code + link */}
+        {/* Share card */}
         <div className="glass mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl p-5">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -57,9 +116,6 @@ export default async function SeriesPage({
             ) : (
               <div className="mt-0.5 text-sm text-zinc-500">—</div>
             )}
-            <div className="mt-1 text-xs text-zinc-500">
-              Gå til forsiden og skriv koden for å bli med.
-            </div>
           </div>
           <div className="flex gap-2">
             {series.join_code && (
@@ -70,8 +126,65 @@ export default async function SeriesPage({
         </div>
       </header>
 
+      {/* Rules */}
+      <section className="animate-rise mb-8">
+        <SectionTitle>Regler</SectionTitle>
+        <div className="glass rounded-2xl p-5">
+          {ruleChips.length === 0 && !defaults.notes ? (
+            <p className="text-sm text-zinc-500">
+              Ingen husregler satt{isOwner ? " ennå." : "."}
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {ruleChips.map((c) => (
+                <span
+                  key={c.label}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm"
+                >
+                  <span className="text-zinc-500">{c.label}:</span>{" "}
+                  <span className="font-medium text-zinc-100">{c.value}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {defaults.notes && (
+            <p className="mt-3 text-sm text-zinc-400">{defaults.notes}</p>
+          )}
+          {isOwner && (
+            <div className="mt-4">
+              <RulesForm series={series} token={token} />
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Members + invite */}
+      <section className="animate-rise mb-8">
+        <SectionTitle>Medlemmer</SectionTitle>
+        <div className="glass rounded-2xl p-5">
+          <ul className="flex flex-wrap gap-2">
+            {members.map((m) => (
+              <li
+                key={m.userId}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium text-zinc-100">@{m.username}</span>
+                {m.role === "owner" && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                    eier
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4">
+            <InviteFriends seriesId={series.id} friends={invitable} />
+          </div>
+        </div>
+      </section>
+
       {/* Scoreboard */}
-      <section className="animate-rise mb-10" style={{ animationDelay: "0.05s" }}>
+      <section className="animate-rise mb-10">
         <SectionTitle>Stilling</SectionTitle>
         {ranked.length === 0 ? (
           <p className="glass rounded-2xl px-4 py-10 text-center text-zinc-400">
@@ -133,13 +246,13 @@ export default async function SeriesPage({
       </section>
 
       {/* Add game */}
-      <section className="animate-rise mb-10" style={{ animationDelay: "0.1s" }}>
+      <section className="animate-rise mb-10">
         <SectionTitle>Logg et spill</SectionTitle>
-        <AddGameForm token={token} players={players} currency={cur} />
+        <AddGameForm token={token} players={players} series={series} />
       </section>
 
       {/* Games list */}
-      <section className="animate-rise" style={{ animationDelay: "0.15s" }}>
+      <section className="animate-rise">
         <SectionTitle>Spill</SectionTitle>
         {games.length === 0 ? (
           <p className="text-sm text-zinc-500">Ingenting her ennå.</p>

@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import type { Player } from "@/lib/types";
+import type { Player, Series } from "@/lib/types";
 import { formatAmount, formatMoney } from "@/lib/format";
-import { addGame, type GameEntry } from "./actions";
+import { seriesDefaults, gameTypeLabel, GAME_TYPES } from "@/lib/rules";
+import { addGame, type GameEntry, type GameRulesInput } from "./actions";
 
 type Row = {
   key: string;
@@ -25,21 +26,39 @@ function todayISO(): string {
   return new Date(now.getTime() - tzOffset).toISOString().slice(0, 10);
 }
 
+const EMPTY_RULES: GameRulesInput = {
+  buyIn: "",
+  smallBlind: "",
+  bigBlind: "",
+  location: "",
+  gameType: "",
+  notes: "",
+};
+
 export default function AddGameForm({
   token,
   players,
-  currency,
+  series,
 }: {
   token: string;
   players: Player[];
-  currency: string;
+  series: Series;
 }) {
+  const currency = series.currency;
+  const defaults = useMemo(() => seriesDefaults(series), [series]);
+
   const [open, setOpen] = useState(false);
   const [playedOn, setPlayedOn] = useState(todayISO);
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<Row[]>(() => [blankRow(), blankRow()]);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rules, setRules] = useState<GameRulesInput>(EMPTY_RULES);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  function setRule(patch: Partial<GameRulesInput>) {
+    setRules((r) => ({ ...r, ...patch }));
+  }
 
   function update(key: string, patch: Partial<Row>) {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -86,7 +105,7 @@ export default function AddGameForm({
 
     startTransition(async () => {
       try {
-        await addGame(token, { playedOn, note, entries });
+        await addGame(token, { playedOn, note, entries, rules });
         // On success the action redirects to the new game's page.
       } catch (e) {
         setError(e instanceof Error ? e.message : "Noe gikk galt.");
@@ -209,6 +228,98 @@ export default function AddGameForm({
       >
         + Legg til spillerrad
       </button>
+
+      {/* Per-night rule overrides */}
+      <div className="mt-4 border-t border-white/10 pt-4">
+        <button
+          type="button"
+          onClick={() => setRulesOpen((o) => !o)}
+          className="text-sm font-semibold text-zinc-300 transition hover:text-white"
+        >
+          {rulesOpen ? "▾" : "▸"} Regler for kvelden (valgfritt)
+        </button>
+        {rulesOpen && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm text-zinc-300">
+              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
+                Innkjøp
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={rules.buyIn}
+                onChange={(e) => setRule({ buyIn: e.target.value })}
+                placeholder={defaults.buyIn != null ? String(defaults.buyIn) : "—"}
+                className="field w-full px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-zinc-300">
+              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
+                Spilltype
+              </span>
+              <select
+                value={rules.gameType}
+                onChange={(e) => setRule({ gameType: e.target.value })}
+                className="field w-full px-3 py-2"
+              >
+                <option value="">
+                  Arv ({gameTypeLabel(defaults.gameType) ?? "ingen"})
+                </option>
+                {GAME_TYPES.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-zinc-300">
+              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
+                Liten blind
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={rules.smallBlind}
+                onChange={(e) => setRule({ smallBlind: e.target.value })}
+                placeholder={
+                  defaults.smallBlind != null ? String(defaults.smallBlind) : "—"
+                }
+                className="field w-full px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-zinc-300">
+              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
+                Stor blind
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={rules.bigBlind}
+                onChange={(e) => setRule({ bigBlind: e.target.value })}
+                placeholder={
+                  defaults.bigBlind != null ? String(defaults.bigBlind) : "—"
+                }
+                className="field w-full px-3 py-2"
+              />
+            </label>
+            <label className="text-sm text-zinc-300 sm:col-span-2">
+              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
+                Sted
+              </span>
+              <input
+                value={rules.location}
+                onChange={(e) => setRule({ location: e.target.value })}
+                placeholder={defaults.location ?? "—"}
+                maxLength={80}
+                className="field w-full px-3 py-2"
+              />
+            </label>
+            <p className="text-xs text-zinc-500 sm:col-span-2">
+              Tomme felt arver seriens standardregler.
+            </p>
+          </div>
+        )}
+      </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4 text-sm">
         <div className="text-zinc-400">

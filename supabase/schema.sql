@@ -61,3 +61,6 @@ alter table series        enable row level security;
 alter table players       enable row level security;
 alter table games         enable row level security;
 alter table game_results  enable row level security;
+
+-- Accounts, friends, membership, invitations and rules live in migration 0002.
+-- For a fresh setup, run supabase/migrations/0002_accounts_social.sql next.

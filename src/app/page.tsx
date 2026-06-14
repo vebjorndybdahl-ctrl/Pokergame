@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { createSeries } from "./actions";
-import JoinForm from "./JoinForm";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth";
 
-export default function Home() {
+export default async function Home() {
+  if (await getCurrentUser()) redirect("/dashboard");
+
   return (
     <main className="relative mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-5 py-16">
       {/* Floating suit accents */}
@@ -20,8 +22,7 @@ export default function Home() {
         ♦
       </div>
 
-      {/* Hero */}
-      <div className="animate-rise mb-9 text-center">
+      <div className="animate-rise text-center">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-300/5 px-3.5 py-1 text-xs font-medium tracking-wide text-amber-200/80">
           <span className="animate-glow">♠</span> Hjemmespillets hovedkvarter
         </div>
@@ -30,62 +31,30 @@ export default function Home() {
           <span className="text-white">Poker</span>
         </h1>
         <p className="mx-auto mt-4 max-w-md text-balance text-zinc-300/90">
-          Start en serie for hjemmespillet ditt. Logg hver kveld, hold løpende
-          stilling, og del én lenke med bordet.
+          Følg hjemmespillet ditt: lag en serie, inviter vennene, logg hver
+          kveld og hold løpende stilling. Klikk inn på hvert spill for å se hvem
+          som gikk i pluss.
         </p>
       </div>
 
-      {/* Create form */}
-      <form
-        action={createSeries}
-        className="glass animate-rise rounded-3xl p-7"
-        style={{ animationDelay: "0.1s" }}
-      >
-        <label className="block text-sm font-medium text-zinc-200">
-          Serienavn
-          <input
-            name="name"
-            required
-            maxLength={60}
-            placeholder="Torsdagspoker"
-            className="field mt-1.5 w-full px-4 py-3 text-lg"
-          />
-        </label>
-
-        <label className="mt-5 block text-sm font-medium text-zinc-200">
-          Valutasymbol
-          <input
-            name="currency"
-            defaultValue="kr"
-            maxLength={3}
-            className="field mt-1.5 w-28 px-4 py-3 text-center"
-          />
-        </label>
-
-        <button
-          type="submit"
-          className="btn-gold mt-7 w-full rounded-xl px-4 py-3.5 text-base font-bold tracking-wide"
+      <div className="animate-rise mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center" style={{ animationDelay: "0.1s" }}>
+        <Link
+          href="/signup"
+          className="btn-gold rounded-xl px-6 py-3.5 text-center text-base font-bold tracking-wide"
         >
-          Opprett serie &amp; få kode
-        </button>
-      </form>
-
-      {/* Divider */}
-      <div className="my-6 flex items-center gap-4">
-        <div className="h-px flex-1 bg-white/10" />
-        <span className="text-xs font-medium uppercase tracking-widest text-zinc-600">
-          eller
-        </span>
-        <div className="h-px flex-1 bg-white/10" />
+          Opprett konto
+        </Link>
+        <Link
+          href="/login"
+          className="rounded-xl border border-white/15 bg-white/5 px-6 py-3.5 text-center text-base font-semibold text-zinc-200 transition hover:border-white/30 hover:text-white"
+        >
+          Logg inn
+        </Link>
       </div>
 
-      {/* Join with a code */}
-      <JoinForm />
-
-      {/* Learn-to-play entry point */}
       <Link
         href="/laer"
-        className="glass card-rise animate-rise mt-5 flex items-center justify-between gap-4 rounded-2xl px-6 py-5 hover:border-amber-300/30"
+        className="glass card-rise animate-rise mt-8 flex items-center justify-between gap-4 rounded-2xl px-6 py-5 hover:border-amber-300/30"
         style={{ animationDelay: "0.2s" }}
       >
         <div>
@@ -98,11 +67,6 @@ export default function Home() {
         </div>
         <span className="shrink-0 text-amber-200/80">Lær poker →</span>
       </Link>
-
-      <p className="animate-rise mx-auto mt-6 max-w-sm text-center text-xs leading-relaxed text-zinc-500">
-        Ingen registrering. Del koden (eller lenken) med gjengen — alle med den
-        kan se og legge til spill.
-      </p>
     </main>
   );
 }

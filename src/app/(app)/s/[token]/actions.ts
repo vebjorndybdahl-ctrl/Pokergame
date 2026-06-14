@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getSeriesByToken } from "@/lib/data";
+import { requireSeriesMember } from "@/lib/guards";
 
 // One line of an add-game submission: either an existing player (playerId)
 // or a brand-new player to be created (newName).
@@ -14,15 +15,33 @@ export type GameEntry = {
   cashOut: number;
 };
 
+// Optional per-night rule overrides. Empty strings = inherit series default.
+export type GameRulesInput = {
+  buyIn: string;
+  smallBlind: string;
+  bigBlind: string;
+  location: string;
+  gameType: string;
+  notes: string;
+};
+
 export type AddGameInput = {
   playedOn: string; // YYYY-MM-DD
   note: string;
   entries: GameEntry[];
+  rules?: GameRulesInput;
 };
+
+function numOrNull(s: string | undefined): number | null {
+  if (!s) return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
 
 export async function addGame(token: string, input: AddGameInput) {
   const series = await getSeriesByToken(token);
   if (!series) throw new Error("Fant ikke serien.");
+  await requireSeriesMember(series.id); // members only
 
   const sb = getSupabaseAdmin();
 
@@ -56,13 +75,20 @@ export async function addGame(token: string, input: AddGameInput) {
     for (const p of data ?? []) nameToId.set(p.name, p.id);
   }
 
-  // 2) Create the game.
+  // 2) Create the game, with any per-night rule overrides.
+  const r = input.rules;
   const { data: game, error: gErr } = await sb
     .from("games")
     .insert({
       series_id: series.id,
       played_on: playedOn,
       note: input.note.trim() || null,
+      buy_in: numOrNull(r?.buyIn),
+      small_blind: numOrNull(r?.smallBlind),
+      big_blind: numOrNull(r?.bigBlind),
+      location: r?.location?.trim() || null,
+      game_type: r?.gameType || null,
+      rules_notes: r?.notes?.trim() || null,
     })
     .select("id")
     .single();
@@ -94,6 +120,7 @@ export async function addGame(token: string, input: AddGameInput) {
 export async function deleteGame(token: string, gameId: string) {
   const series = await getSeriesByToken(token);
   if (!series) throw new Error("Fant ikke serien.");
+  await requireSeriesMember(series.id); // members only
 
   const sb = getSupabaseAdmin();
   // Scope the delete to this series so a wrong token can't nuke another game.

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSeriesByToken, getGameDetail } from "@/lib/data";
+import { requireSeriesMember } from "@/lib/guards";
 import { formatMoney, formatAmount, netColor, formatDate } from "@/lib/format";
+import { resolveGameRules, blindsLabel, gameTypeLabel } from "@/lib/rules";
 import DeleteGameButton from "./DeleteGameButton";
 
 export default async function GamePage({
@@ -12,6 +14,7 @@ export default async function GamePage({
   const { token, gameId } = await params;
   const series = await getSeriesByToken(token);
   if (!series) notFound();
+  await requireSeriesMember(series.id); // members only
 
   const detail = await getGameDetail(series, gameId);
   if (!detail) notFound();
@@ -20,6 +23,20 @@ export default async function GamePage({
   const cur = series.currency;
   const pot = rows.reduce((sum, r) => sum + r.buyIn, 0);
   const diff = rows.reduce((sum, r) => sum + r.net, 0);
+
+  const rules = resolveGameRules(series, game);
+  const ruleChips = [
+    rules.buyIn != null
+      ? { label: "Innkjøp", value: formatAmount(rules.buyIn, cur) }
+      : null,
+    blindsLabel(rules)
+      ? { label: "Blinds", value: `${blindsLabel(rules)} ${cur}` }
+      : null,
+    gameTypeLabel(rules.gameType)
+      ? { label: "Type", value: gameTypeLabel(rules.gameType)! }
+      : null,
+    rules.location ? { label: "Sted", value: rules.location } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
 
   return (
     <main className="animate-rise mx-auto w-full max-w-2xl flex-1 px-5 py-10">
@@ -38,6 +55,19 @@ export default async function GamePage({
           {rows.length} spillere · {formatAmount(pot, cur)} på bordet
           {game.note ? ` · ${game.note}` : ""}
         </p>
+        {ruleChips.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {ruleChips.map((c) => (
+              <span
+                key={c.label}
+                className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs"
+              >
+                <span className="text-zinc-500">{c.label}:</span>{" "}
+                <span className="font-medium text-zinc-200">{c.value}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </header>
 
       <div className="glass overflow-hidden rounded-2xl">
