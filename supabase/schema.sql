@@ -11,8 +11,12 @@ create table if not exists series (
   name         text not null,
   currency     text not null default 'kr',
   invite_token text not null unique,
+  join_code    text unique,
   created_at   timestamptz not null default now()
 );
+
+-- Short, human-typeable code so people can join without saving the long link.
+create unique index if not exists series_join_code_idx on series(join_code);
 
 -- Players belong to a series. A player who "joins for a day" still lives here;
 -- they simply only have results for the games they actually played.

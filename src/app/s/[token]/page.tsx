@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSeriesByToken, getDashboard } from "@/lib/data";
 import { formatMoney, formatAmount, netColor, formatDate } from "@/lib/format";
-import CopyLink from "./CopyLink";
+import CopyButton from "./CopyButton";
 import AddGameForm from "./AddGameForm";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -25,20 +25,15 @@ export default async function SeriesPage({
     <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-10">
       {/* Header */}
       <header className="animate-rise mb-9">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <Link
-              href="/"
-              className="text-xs font-medium tracking-wide text-zinc-500 transition hover:text-amber-200"
-            >
-              <span className="gold-text">♠ Alpha</span> Poker
-            </Link>
-            <h1 className="mt-1.5 font-[family-name:var(--font-display)] text-4xl font-black tracking-tight text-white sm:text-5xl">
-              {series.name}
-            </h1>
-          </div>
-          <CopyLink path={`/s/${token}`} />
-        </div>
+        <Link
+          href="/"
+          className="text-xs font-medium tracking-wide text-zinc-500 transition hover:text-amber-200"
+        >
+          <span className="gold-text">♠ Alpha</span> Poker
+        </Link>
+        <h1 className="mt-1.5 font-[family-name:var(--font-display)] text-4xl font-black tracking-tight text-white sm:text-5xl">
+          {series.name}
+        </h1>
 
         {/* Stat chips */}
         <div className="mt-5 flex flex-wrap gap-2.5 text-sm">
@@ -47,6 +42,31 @@ export default async function SeriesPage({
           {biggestPot > 0 && (
             <Stat label="Største pott" value={formatAmount(biggestPot, cur)} />
           )}
+        </div>
+
+        {/* Share card: join code + link */}
+        <div className="glass mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl p-5">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Bli med-kode
+            </div>
+            {series.join_code ? (
+              <div className="mt-0.5 font-mono text-3xl font-black tracking-[0.25em]">
+                <span className="gold-text">{series.join_code}</span>
+              </div>
+            ) : (
+              <div className="mt-0.5 text-sm text-zinc-500">—</div>
+            )}
+            <div className="mt-1 text-xs text-zinc-500">
+              Gå til forsiden og skriv koden for å bli med.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {series.join_code && (
+              <CopyButton value={series.join_code} label="Kopier kode" />
+            )}
+            <CopyButton value={`/s/${token}`} isPath label="Kopier lenke" />
+          </div>
         </div>
       </header>
 

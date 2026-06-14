@@ -1,4 +1,5 @@
 import { createSeries } from "./actions";
+import JoinForm from "./JoinForm";
 
 export default function Home() {
   return (
@@ -64,13 +65,25 @@ export default function Home() {
           type="submit"
           className="btn-gold mt-7 w-full rounded-xl px-4 py-3.5 text-base font-bold tracking-wide"
         >
-          Opprett serie &amp; få invitasjonslenke
+          Opprett serie &amp; få kode
         </button>
       </form>
 
+      {/* Divider */}
+      <div className="my-6 flex items-center gap-4">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-xs font-medium uppercase tracking-widest text-zinc-600">
+          eller
+        </span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+
+      {/* Join with a code */}
+      <JoinForm />
+
       <p className="animate-rise mx-auto mt-6 max-w-sm text-center text-xs leading-relaxed text-zinc-500">
-        Ingen registrering. Alle med serielenken kan se og legge til spill —
-        hold den innad i gjengen.
+        Ingen registrering. Del koden (eller lenken) med gjengen — alle med den
+        kan se og legge til spill.
       </p>
     </main>
   );

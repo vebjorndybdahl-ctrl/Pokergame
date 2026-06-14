@@ -3,6 +3,7 @@ export type Series = {
   name: string;
   currency: string;
   invite_token: string;
+  join_code: string | null;
   created_at: string;
 };
 

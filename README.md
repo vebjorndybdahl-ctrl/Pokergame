@@ -10,8 +10,9 @@ helt gratis på gratisnivåene — 0 kr/måned for et hjemmespill på 7 personer
 
 ## Slik fungerer det
 
-- **Ingen brukerkonto.** En serie nås via en hemmelig lenke (`/s/<token>`). Alle
-  med lenken kan se og legge til spill. Hold den innad i gjengen.
+- **Ingen brukerkonto.** En serie nås via en hemmelig lenke (`/s/<token>`) eller
+  en kort **kode** som skrives inn på forsiden. Alle med lenken/koden kan se og
+  legge til spill. Hold den innad i gjengen.
 - **Spillere som hopper innom.** Noen som spiller én kveld legges til direkte i
   spillskjemaet — de vises kun på stillingen for de spillene de faktisk var med på.
 - **Hemmeligheter kun på server.** Appen snakker med databasen fra serveren med
