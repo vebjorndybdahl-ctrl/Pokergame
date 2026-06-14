@@ -13,7 +13,9 @@ import {
 import { estimateEquity } from "@/lib/poker/equity";
 import { describeRank } from "@/lib/poker/evaluator";
 import type { Action, HandState, ShowdownResult } from "@/lib/poker/types";
+import { EMPTY_STATS, type StyleStats } from "@/lib/poker/style";
 import { PlayingCard } from "./PlayingCard";
+import StyleAnalysis from "./StyleAnalysis";
 
 const START_STACK = 1000;
 const SB = 10;
@@ -25,7 +27,7 @@ function bb(chips: number): string {
   return Number.isInteger(v) ? `${v}bb` : `${v.toFixed(1)}bb`;
 }
 
-// Basic equity-vs-pot-odds bot (Phase 2). Difficulty levels arrive in Phase 3.
+// Basic equity-vs-pot-odds bot (difficulty levels arrive in Phase 3).
 function basicBotAction(state: HandState): Action {
   const seat = state.seats[state.toAct];
   const legal = legalActions(state);
@@ -73,13 +75,17 @@ export default function PokerTable({
   const [phase, setPhase] = useState<"setup" | "playing" | "showdown">("setup");
   const [hand, setHand] = useState<HandState | null>(null);
   const [result, setResult] = useState<ShowdownResult | null>(null);
+  const [stats, setStats] = useState<StyleStats>(EMPTY_STATS);
+  const [showStyle, setShowStyle] = useState(false);
   const buttonRef = useRef(0);
+  const handVpipRef = useRef(false);
+  const handPfrRef = useRef(false);
 
-  // The engine mutates the hand in place; re-render by handing React a new
-  // top-level object (the nested data, incl. the rng closure, is shared).
   const touch = useCallback(() => setHand((h) => (h ? { ...h } : h)), []);
 
   const startHand = useCallback(() => {
+    handVpipRef.current = false;
+    handPfrRef.current = false;
     setHand((prev) => {
       const seats: Parameters<typeof createHand>[0]["seats"] = [
         { name: username ?? "Deg", stack: START_STACK, isHero: true },
@@ -92,8 +98,6 @@ export default function PokerTable({
           botLevel: "middels",
         });
       }
-
-      // Carry stacks across hands; auto-rebuy below a big blind; move button.
       if (prev && prev.seats.length === seats.length) {
         for (let i = 0; i < seats.length; i++) {
           seats[i].stack =
@@ -103,7 +107,6 @@ export default function PokerTable({
       } else {
         buttonRef.current = 0;
       }
-
       const seed = Math.floor(Math.random() * 2 ** 31);
       return createHand({
         seats,
@@ -113,12 +116,11 @@ export default function PokerTable({
         rng: makeRng(seed),
       });
     });
+    setStats((s) => ({ ...s, hands: s.hands + 1 }));
     setResult(null);
     setPhase("playing");
   }, [tableSize, username]);
 
-  // Apply an action, then either settle (hand over) or re-render for the next
-  // turn. Kept out of the effect body so state updates happen in handlers.
   const applyAndSync = useCallback(
     (st: HandState, action: Action) => {
       applyAction(st, action);
@@ -131,20 +133,48 @@ export default function PokerTable({
     [touch],
   );
 
-  // Drive the bots: whenever it's a bot's turn, act after a short beat.
+  // Bots: act after a natural, variable pause (1.4–2.9s).
   useEffect(() => {
     if (phase !== "playing" || !hand) return;
     const seat = hand.seats[hand.toAct];
-    if (!seat || seat.isHero) return; // hero's turn (or none) — wait
+    if (!seat || seat.isHero) return;
+    const delay = 1400 + Math.floor(Math.random() * 1500);
     const id = setTimeout(() => {
       applyAndSync(hand, basicBotAction(hand));
-    }, 600);
+    }, delay);
     return () => clearTimeout(id);
   }, [hand, phase, applyAndSync]);
 
   const heroAct = useCallback(
     (action: Action) => {
-      if (hand) applyAndSync(hand, action);
+      if (!hand) return;
+      const stage = hand.stage;
+      setStats((s) => {
+        const ns = { ...s };
+        if (action.type === "raise") {
+          ns.aggressiveActions++;
+          if (stage === "preflop") {
+            if (!handPfrRef.current) {
+              handPfrRef.current = true;
+              ns.pfrHands++;
+            }
+            if (!handVpipRef.current) {
+              handVpipRef.current = true;
+              ns.vpipHands++;
+            }
+          }
+        } else if (action.type === "call") {
+          ns.passiveActions++;
+          if (stage === "preflop" && !handVpipRef.current) {
+            handVpipRef.current = true;
+            ns.vpipHands++;
+          }
+        } else if (action.type === "fold") {
+          ns.folds++;
+        }
+        return ns;
+      });
+      applyAndSync(hand, action);
     },
     [hand, applyAndSync],
   );
@@ -162,105 +192,162 @@ export default function PokerTable({
 
   const st = hand;
   const pot = totalPot(st);
+  const heroSeat = st.seats.find((s) => s.isHero)!;
   const heroTurn =
     phase === "playing" && st.toAct >= 0 && st.seats[st.toAct].isHero;
   const showdown = phase === "showdown";
+  const blinds = `${SB / BB}/${BB / BB} bb`;
 
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
-      {/* Felt */}
-      <div className="relative mx-auto aspect-[4/3] w-full max-w-2xl">
-        <div
-          className="absolute inset-2 rounded-[46%] border-2"
-          style={{
-            background:
-              "radial-gradient(ellipse at center, #0c5238 0%, #07301f 80%)",
-            borderColor: "rgba(245,212,114,0.22)",
-          }}
-        />
-
-        {/* Pot + board */}
-        <div className="absolute left-1/2 top-[38%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2">
-          <div className="flex gap-1.5">
-            {st.board.map((c, i) => (
-              <PlayingCard key={i} card={c} small />
-            ))}
-            {st.board.length === 0 && (
-              <span className="text-xs text-emerald-200/40">— flop kommer —</span>
-            )}
-          </div>
-          <div className="rounded-full bg-black/30 px-3 py-1 text-sm font-bold text-amber-200">
-            Pott {bb(pot)}
-          </div>
+    <main className="mx-auto w-full max-w-2xl flex-1 px-3 py-4">
+      {/* Top bar */}
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-xs text-zinc-500">
+          Blinds {blinds} · {st.seats.length} spillere
         </div>
+        <button
+          onClick={() => setShowStyle(true)}
+          className="rounded-lg border border-amber-300/30 bg-amber-300/5 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-300/10"
+        >
+          📊 Spillestil
+        </button>
+      </div>
 
-        {/* Seats */}
-        {st.seats.map((seat, i) => {
-          const angle = (Math.PI / 2) + (i / st.seats.length) * 2 * Math.PI;
-          const left = 50 + 46 * Math.cos(angle);
-          const top = 50 + 44 * Math.sin(angle);
-          const isActive = st.toAct === i && phase === "playing";
-          const reveal = seat.isHero || (showdown && seat.status !== "folded");
-          return (
-            <div
-              key={seat.id}
-              className="absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${left}%`, top: `${top}%` }}
-            >
-              <div
-                className={`flex flex-col items-center gap-1 rounded-xl border px-2.5 py-1.5 transition ${
-                  isActive
-                    ? "border-amber-300 bg-amber-300/10 shadow-lg"
-                    : "border-white/10 bg-zinc-900/70"
-                } ${seat.status === "folded" ? "opacity-40" : ""}`}
-              >
-                <div className="flex items-center gap-1">
-                  {st.button === i && (
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] font-black text-zinc-900">
-                      D
-                    </span>
-                  )}
-                  <span className="text-xs font-semibold text-white">
-                    {seat.name}
+      {/* Table */}
+      <div className="relative mx-auto w-full max-w-sm">
+        <div
+          className="relative aspect-[5/6] w-full rounded-[44%] p-2.5 shadow-2xl"
+          style={{
+            background: "linear-gradient(160deg, #6b4423 0%, #2c1a0d 100%)",
+          }}
+        >
+          <div
+            className="relative h-full w-full overflow-hidden rounded-[43%] border border-amber-200/10"
+            style={{
+              background:
+                "radial-gradient(ellipse at 50% 42%, #11653f 0%, #0a3a26 70%, #062417 100%)",
+              boxShadow: "inset 0 0 60px rgba(0,0,0,0.55)",
+            }}
+          >
+            {/* Center: pot + board */}
+            <div className="absolute left-1/2 top-[40%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2.5">
+              <div className="rounded-full bg-black/35 px-4 py-1 text-sm font-bold text-amber-200 ring-1 ring-amber-300/20">
+                Pott {bb(pot)}
+              </div>
+              <div className="flex gap-1.5">
+                {st.board.length > 0 ? (
+                  st.board.map((c, i) => <PlayingCard key={i} card={c} />)
+                ) : (
+                  <span className="text-xs italic text-emerald-200/30">
+                    venter på floppen
                   </span>
-                </div>
-                <div className="flex gap-0.5">
-                  {seat.hole.map((c, k) => (
-                    <PlayingCard
-                      key={k}
-                      card={reveal ? c : undefined}
-                      hidden={!reveal}
-                      small
-                    />
-                  ))}
-                </div>
-                <div className="text-[11px] text-zinc-400">
-                  {seat.status === "allin" ? (
-                    <span className="text-rose-300">All-in</span>
-                  ) : seat.status === "folded" ? (
-                    "Foldet"
-                  ) : (
-                    bb(seat.stack)
-                  )}
-                </div>
-                {seat.committedThisStreet > 0 && (
-                  <div className="text-[10px] font-bold text-amber-200/80">
-                    {bb(seat.committedThisStreet)}
-                  </div>
-                )}
-                {showdown && reveal && result?.bestBySeat[i] != null && (
-                  <div className="text-[10px] text-emerald-300">
-                    {describeRank(result.bestBySeat[i] as number)}
-                  </div>
                 )}
               </div>
             </div>
-          );
-        })}
+
+            {/* Seats */}
+            {st.seats.map((seat, i) => {
+              const angle = Math.PI / 2 + (i / st.seats.length) * 2 * Math.PI;
+              const left = 50 + 37 * Math.cos(angle);
+              const top = 50 + 41 * Math.sin(angle);
+              const isActive = st.toAct === i && phase === "playing";
+              const revealCards =
+                !seat.isHero && showdown && seat.status !== "folded";
+              return (
+                <div
+                  key={seat.id}
+                  className="absolute -translate-x-1/2 -translate-y-1/2"
+                  style={{ left: `${left}%`, top: `${top}%` }}
+                >
+                  <div
+                    className={`flex w-[4.75rem] flex-col items-center gap-1 rounded-xl border px-1.5 py-1 backdrop-blur-sm transition ${
+                      isActive
+                        ? "border-amber-300 bg-amber-300/15 shadow-[0_0_18px_rgba(245,212,114,0.45)]"
+                        : "border-white/10 bg-black/45"
+                    } ${seat.status === "folded" ? "opacity-35" : ""}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      {st.button === i && (
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] font-black text-zinc-900">
+                          D
+                        </span>
+                      )}
+                      <span className="truncate text-xs font-semibold text-white">
+                        {seat.isHero ? "Deg" : seat.name}
+                      </span>
+                    </div>
+
+                    {!seat.isHero && (
+                      <div className="flex gap-0.5">
+                        {seat.hole.map((c, k) => (
+                          <PlayingCard
+                            key={k}
+                            card={revealCards ? c : undefined}
+                            hidden={!revealCards}
+                            small
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="rounded-full bg-black/40 px-2 text-[11px] font-medium text-emerald-200/90">
+                      {seat.status === "folded" ? "fold" : bb(seat.stack)}
+                    </div>
+
+                    {isActive && (
+                      <div className="flex gap-0.5">
+                        {[0, 1, 2].map((d) => (
+                          <span
+                            key={d}
+                            className="h-1 w-1 animate-bounce rounded-full bg-amber-300"
+                            style={{ animationDelay: `${d * 0.15}s` }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Current bet chip toward the centre */}
+                  {seat.committedThisStreet > 0 && (
+                    <div className="mt-1 text-center text-[10px] font-bold text-amber-300/90">
+                      {bb(seat.committedThisStreet)}
+                    </div>
+                  )}
+                  {revealCards && result?.bestBySeat[i] != null && (
+                    <div className="mt-0.5 text-center text-[10px] text-emerald-300">
+                      {describeRank(result.bestBySeat[i] as number)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Style overlay */}
+        {showStyle && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-[44%] bg-black/85 p-3">
+            <div className="w-full max-w-sm rounded-2xl bg-zinc-950/95">
+              <StyleAnalysis stats={stats} onClose={() => setShowStyle(false)} />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Controls / result */}
-      <div className="mx-auto mt-5 max-w-xl">
+      {/* Hero cards + controls */}
+      <div className="mx-auto mt-4 max-w-lg">
+        <div className="mb-3 flex items-center justify-center gap-3">
+          <div className="flex gap-1.5">
+            {heroSeat.hole.map((c, k) => (
+              <PlayingCard key={k} card={c} />
+            ))}
+          </div>
+          <div className="text-sm">
+            <div className="font-bold text-white">Deg</div>
+            <div className="text-emerald-300">{bb(heroSeat.stack)}</div>
+          </div>
+        </div>
+
         {heroTurn && <BetControls state={st} onAct={heroAct} />}
         {showdown && result && (
           <Showdown
@@ -271,7 +358,9 @@ export default function PokerTable({
           />
         )}
         {!heroTurn && !showdown && (
-          <p className="text-center text-sm text-zinc-500">Motstanderne tenker…</p>
+          <p className="text-center text-sm text-zinc-500">
+            {st.toAct >= 0 ? `${st.seats[st.toAct].name} tenker…` : "…"}
+          </p>
         )}
       </div>
     </main>
@@ -417,7 +506,7 @@ function Showdown({
       <div className="mt-1 space-y-0.5">
         {winners.map((w) => (
           <div key={w.i} className="font-bold text-white">
-            {w.s.name} vinner {bb(w.won)}
+            {w.s.isHero ? "Du" : w.s.name} vinner {bb(w.won)}
           </div>
         ))}
       </div>
