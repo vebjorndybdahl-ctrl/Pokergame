@@ -71,81 +71,85 @@ export default function PokerTable({
 }) {
   const [tableSize, setTableSize] = useState(4);
   const [phase, setPhase] = useState<"setup" | "playing" | "showdown">("setup");
-  const [tick, setTick] = useState(0);
+  const [hand, setHand] = useState<HandState | null>(null);
   const [result, setResult] = useState<ShowdownResult | null>(null);
-  const handRef = useRef<HandState | null>(null);
   const buttonRef = useRef(0);
-  const bump = useCallback(() => setTick((t) => t + 1), []);
+
+  // The engine mutates the hand in place; re-render by handing React a new
+  // top-level object (the nested data, incl. the rng closure, is shared).
+  const touch = useCallback(() => setHand((h) => (h ? { ...h } : h)), []);
 
   const startHand = useCallback(() => {
-    const seats: Parameters<typeof createHand>[0]["seats"] = [
-      { name: username ?? "Deg", stack: START_STACK, isHero: true },
-    ];
-    for (let i = 0; i < tableSize - 1; i++) {
-      seats.push({
-        name: BOT_NAMES[i],
-        stack: START_STACK,
-        isHero: false,
-        botLevel: "middels",
-      });
-    }
-
-    // Carry stacks across hands; auto-rebuy anyone below a big blind; move button.
-    const prev = handRef.current;
-    if (prev && prev.seats.length === seats.length) {
-      for (let i = 0; i < seats.length; i++) {
-        seats[i].stack =
-          prev.seats[i].stack < BB ? START_STACK : prev.seats[i].stack;
+    setHand((prev) => {
+      const seats: Parameters<typeof createHand>[0]["seats"] = [
+        { name: username ?? "Deg", stack: START_STACK, isHero: true },
+      ];
+      for (let i = 0; i < tableSize - 1; i++) {
+        seats.push({
+          name: BOT_NAMES[i],
+          stack: START_STACK,
+          isHero: false,
+          botLevel: "middels",
+        });
       }
-      buttonRef.current = (buttonRef.current + 1) % seats.length;
-    } else {
-      buttonRef.current = 0;
-    }
 
-    const seed = Math.floor(Math.random() * 2 ** 31);
-    handRef.current = createHand({
-      seats,
-      button: buttonRef.current,
-      sb: SB,
-      bb: BB,
-      rng: makeRng(seed),
+      // Carry stacks across hands; auto-rebuy below a big blind; move button.
+      if (prev && prev.seats.length === seats.length) {
+        for (let i = 0; i < seats.length; i++) {
+          seats[i].stack =
+            prev.seats[i].stack < BB ? START_STACK : prev.seats[i].stack;
+        }
+        buttonRef.current = (buttonRef.current + 1) % seats.length;
+      } else {
+        buttonRef.current = 0;
+      }
+
+      const seed = Math.floor(Math.random() * 2 ** 31);
+      return createHand({
+        seats,
+        button: buttonRef.current,
+        sb: SB,
+        bb: BB,
+        rng: makeRng(seed),
+      });
     });
     setResult(null);
     setPhase("playing");
-    bump();
-  }, [tableSize, username, bump]);
+  }, [tableSize, username]);
+
+  // Apply an action, then either settle (hand over) or re-render for the next
+  // turn. Kept out of the effect body so state updates happen in handlers.
+  const applyAndSync = useCallback(
+    (st: HandState, action: Action) => {
+      applyAction(st, action);
+      if (isComplete(st)) {
+        setResult(settle(st));
+        setPhase("showdown");
+      }
+      touch();
+    },
+    [touch],
+  );
 
   // Drive the bots: whenever it's a bot's turn, act after a short beat.
   useEffect(() => {
-    if (phase !== "playing") return;
-    const st = handRef.current;
-    if (!st) return;
-    if (isComplete(st)) {
-      setResult(settle(st));
-      setPhase("showdown");
-      bump();
-      return;
-    }
-    const seat = st.seats[st.toAct];
-    if (seat.isHero) return; // wait for the hero's input
+    if (phase !== "playing" || !hand) return;
+    const seat = hand.seats[hand.toAct];
+    if (!seat || seat.isHero) return; // hero's turn (or none) — wait
     const id = setTimeout(() => {
-      applyAction(st, basicBotAction(st));
-      bump();
+      applyAndSync(hand, basicBotAction(hand));
     }, 600);
     return () => clearTimeout(id);
-  }, [tick, phase, bump]);
+  }, [hand, phase, applyAndSync]);
 
   const heroAct = useCallback(
     (action: Action) => {
-      const st = handRef.current;
-      if (!st) return;
-      applyAction(st, action);
-      bump();
+      if (hand) applyAndSync(hand, action);
     },
-    [bump],
+    [hand, applyAndSync],
   );
 
-  if (phase === "setup") {
+  if (phase === "setup" || !hand) {
     return (
       <Setup
         tableSize={tableSize}
@@ -156,9 +160,8 @@ export default function PokerTable({
     );
   }
 
-  const st = handRef.current!;
+  const st = hand;
   const pot = totalPot(st);
-  const heroSeat = st.seats.find((s) => s.isHero)!;
   const heroTurn =
     phase === "playing" && st.toAct >= 0 && st.seats[st.toAct].isHero;
   const showdown = phase === "showdown";
