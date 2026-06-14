@@ -39,6 +39,12 @@ export default async function AppLayout({
             >
               Lær
             </Link>
+            <Link
+              href="/trener"
+              className="rounded-lg px-3 py-1.5 font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white"
+            >
+              Trener
+            </Link>
           </nav>
           <div className="ml-auto flex items-center gap-3">
             <span className="hidden text-sm text-zinc-400 sm:inline">

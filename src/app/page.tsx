@@ -67,6 +67,22 @@ export default async function Home() {
         </div>
         <span className="shrink-0 text-amber-200/80">Lær poker →</span>
       </Link>
+
+      <Link
+        href="/trener"
+        className="glass card-rise animate-rise mt-3 flex items-center justify-between gap-4 rounded-2xl px-6 py-5 hover:border-emerald-300/30"
+        style={{ animationDelay: "0.25s" }}
+      >
+        <div>
+          <div className="flex items-center gap-2 font-bold text-white">
+            <span className="text-emerald-300">♠</span> Tren spillet ditt
+          </div>
+          <p className="mt-0.5 text-sm text-zinc-400">
+            Spill mot maskinen, få coaching, klatre på ledertavlen.
+          </p>
+        </div>
+        <span className="shrink-0 text-emerald-200/80">Til treneren →</span>
+      </Link>
     </main>
   );
 }
