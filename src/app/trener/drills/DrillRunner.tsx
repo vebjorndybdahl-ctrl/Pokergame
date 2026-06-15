@@ -13,6 +13,15 @@ import { recordSession } from "../actions";
 import { DRILLS, type Drill } from "./scenarios";
 import { PlayingCard } from "../PlayingCard";
 
+const SET_SIZE = 10;
+
+const RECO_LABEL: Record<ActionKind, string> = {
+  fold: "Fold",
+  check: "Sjekk",
+  call: "Call",
+  raise: "Høyne",
+};
+
 function shuffled<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -23,7 +32,13 @@ function shuffled<T>(arr: T[]): T[] {
 }
 
 export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
-  const order = useMemo(() => shuffled(DRILLS), []);
+  const [seed, setSeed] = useState(0);
+  const order = useMemo(
+    () => shuffled(DRILLS).slice(0, SET_SIZE),
+    // re-shuffle when the user restarts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [seed],
+  );
   const [i, setI] = useState(0);
   const [answer, setAnswer] = useState<DecisionScore | null>(null);
   const [score, setScore] = useState({ count: 0, sum: 0 });
@@ -60,6 +75,13 @@ export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
     setI((n) => n + 1);
   }
 
+  function restart() {
+    setI(0);
+    setAnswer(null);
+    setScore({ count: 0, sum: 0 });
+    setSeed((s) => s + 1);
+  }
+
   if (done) {
     const avg = score.count ? Math.round(score.sum / score.count) : 0;
     return (
@@ -75,14 +97,10 @@ export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
         </p>
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           <button
-            onClick={() => {
-              setI(0);
-              setAnswer(null);
-              setScore({ count: 0, sum: 0 });
-            }}
+            onClick={restart}
             className="btn-gold rounded-xl px-5 py-2.5 font-bold tracking-wide"
           >
-            Kjør på nytt
+            Nye spørsmål
           </button>
           <Link
             href="/trener"
@@ -100,11 +118,14 @@ export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
     );
   }
 
+  const correct = answer && answer.chosen === answer.recommend;
+
   return (
     <div className="mx-auto max-w-md">
+      {/* Progress */}
       <div className="mb-2 flex items-center justify-between text-xs text-zinc-500">
         <span>
-          Spørsmål {i + 1} / {order.length}
+          {i + 1} / {order.length}
         </span>
         {score.count > 0 && (
           <span className="text-emerald-300">
@@ -112,12 +133,23 @@ export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
           </span>
         )}
       </div>
+      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-amber-300 transition-all"
+          style={{ width: `${(i / order.length) * 100}%` }}
+        />
+      </div>
 
       <div className="glass rounded-2xl p-5">
-        <div className="text-xs font-semibold uppercase tracking-wider text-amber-300/80">
-          {drill.title}
+        <div className="flex items-center justify-between">
+          <span className="rounded-full border border-amber-300/30 bg-amber-300/5 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200">
+            {drill.concept}
+          </span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            {drill.title}
+          </span>
         </div>
-        <p className="mt-1 text-sm text-zinc-300">{drill.prompt}</p>
+        <p className="mt-2 text-sm text-zinc-300">{drill.prompt}</p>
 
         {/* Board */}
         <div className="mt-4 flex min-h-[3.5rem] items-center justify-center gap-1.5">
@@ -150,7 +182,7 @@ export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
         </div>
 
-        {/* Options */}
+        {/* Options or feedback */}
         {!answer ? (
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             {drill.toCallBb > 0 && (
@@ -182,15 +214,36 @@ export default function DrillRunner({ isLoggedIn }: { isLoggedIn: boolean }) {
               className={`text-center text-lg font-black ${VERDICT_META[answer.verdict].color}`}
             >
               {VERDICT_META[answer.verdict].label}
+              {!correct && (
+                <span className="ml-2 text-sm font-semibold text-zinc-400">
+                  beste: {RECO_LABEL[answer.recommend]}
+                </span>
+              )}
             </div>
             <p className="mt-1 text-center text-sm text-zinc-300">
               {answer.explanation}
             </p>
+            <div className="mt-3 flex justify-center gap-2 text-xs">
+              <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
+                <span className="text-zinc-500">equity</span>{" "}
+                <span className="font-semibold text-zinc-100">
+                  {Math.round(answer.equity * 100)}%
+                </span>
+              </span>
+              {answer.potOdds > 0 && (
+                <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
+                  <span className="text-zinc-500">pott-odds</span>{" "}
+                  <span className="font-semibold text-zinc-100">
+                    {Math.round(answer.potOdds * 100)}%
+                  </span>
+                </span>
+              )}
+            </div>
             <button
               onClick={next}
               className="btn-gold mx-auto mt-4 block rounded-xl px-6 py-2.5 font-bold tracking-wide"
             >
-              Neste
+              {i + 1 >= order.length ? "Fullfør" : "Neste"}
             </button>
           </div>
         )}
