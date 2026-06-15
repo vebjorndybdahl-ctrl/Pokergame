@@ -31,6 +31,12 @@ export default function TrenerLayout({
               Drills
             </Link>
             <Link
+              href="/trener/kalkulator"
+              className="rounded-lg px-3 py-1.5 font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white"
+            >
+              Kalkulator
+            </Link>
+            <Link
               href="/trener/ledertavle"
               className="rounded-lg px-3 py-1.5 font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white"
             >

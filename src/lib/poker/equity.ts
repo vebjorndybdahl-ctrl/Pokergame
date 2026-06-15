@@ -99,3 +99,67 @@ export function estimateEquity(opts: {
   const equity = winSum / (counted || 1);
   return { win: equity, tie: 0, equity };
 }
+
+// Equity of `hero` vs a villain whose hand is one of `villain` combos, given an
+// optional `board`. Used by the range calculator.
+export function rangeEquity(opts: {
+  hero: [Card, Card];
+  board?: Card[];
+  villain: [Card, Card][];
+  iterations?: number;
+  rng?: () => number;
+}): { equity: number; samples: number } {
+  const board = opts.board ?? [];
+  const iterations = opts.iterations ?? 8000;
+  const rng = opts.rng ?? makeRng(0x1234567);
+
+  const dead = new Uint8Array(52);
+  for (const c of opts.hero) dead[c] = 1;
+  for (const c of board) dead[c] = 1;
+
+  const combos = opts.villain.filter(([a, b]) => !dead[a] && !dead[b]);
+  if (combos.length === 0) return { equity: 0, samples: 0 };
+
+  const needBoard = 5 - board.length;
+  const heroCards = [opts.hero[0], opts.hero[1], 0, 0, 0, 0, 0];
+  const oppCards = [0, 0, 0, 0, 0, 0, 0];
+
+  let winSum = 0;
+  let samples = 0;
+  for (let it = 0; it < iterations; it++) {
+    const [va, vb] = combos[Math.floor(rng() * combos.length)];
+    const used = dead.slice();
+    used[va] = 1;
+    used[vb] = 1;
+
+    for (let b = 0; b < board.length; b++) heroCards[2 + b] = board[b];
+    let ok = true;
+    for (let b = 0; b < needBoard; b++) {
+      let card = 0;
+      let tries = 0;
+      do {
+        card = Math.floor(rng() * 52);
+        tries++;
+      } while (used[card] && tries < 200);
+      if (used[card]) {
+        ok = false;
+        break;
+      }
+      used[card] = 1;
+      heroCards[2 + board.length + b] = card;
+    }
+    if (!ok) continue;
+
+    for (let b = 0; b < 5; b++) oppCards[2 + b] = heroCards[2 + b];
+    oppCards[0] = va;
+    oppCards[1] = vb;
+
+    const hs = evaluate7(heroCards);
+    const os = evaluate7(oppCards);
+    samples++;
+    if (hs > os) winSum += 1;
+    else if (hs === os) winSum += 0.5;
+  }
+
+  return { equity: samples ? winSum / samples : 0, samples };
+}
