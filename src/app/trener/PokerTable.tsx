@@ -34,6 +34,7 @@ import type {
 
 type Difficulty = BotLevel | "blandet";
 import { EMPTY_STATS, type StyleStats } from "@/lib/poker/style";
+import { shrunkRating } from "@/lib/poker/rating";
 import { PlayingCard } from "./PlayingCard";
 import StyleAnalysis from "./StyleAnalysis";
 import { recordSession } from "./actions";
@@ -271,7 +272,9 @@ export default function PokerTable({
     phase === "playing" && st.toAct >= 0 && st.seats[st.toAct].isHero;
   const showdown = phase === "showdown";
   const sessionQuality =
-    coach.decisions > 0 ? Math.round(coach.qualitySum / coach.decisions) : null;
+    coach.decisions > 0
+      ? Math.round(shrunkRating(coach.qualitySum, coach.decisions))
+      : null;
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-3 py-4">

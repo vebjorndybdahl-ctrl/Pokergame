@@ -1,5 +1,6 @@
 import "server-only";
 import { getSupabaseAdmin } from "./supabase";
+import { shrunkRating } from "./poker/rating";
 import type {
   Series,
   Player,
@@ -450,34 +451,43 @@ export async function getTrainerStats(
   const sb = getSupabaseAdmin();
   const { data } = await sb
     .from("trainer_stats")
-    .select("hands_played, graded_decisions, rating")
+    .select("hands_played, graded_decisions, quality_sum")
     .eq("user_id", userId)
     .maybeSingle();
   if (!data) return null;
   return {
     handsPlayed: data.hands_played,
     gradedDecisions: data.graded_decisions,
-    rating: Number(data.rating),
+    rating: shrunkRating(Number(data.quality_sum), data.graded_decisions),
   };
 }
 
 // Top players by skill rating, among those past the qualifying threshold.
+// Ranked by the shrinkage-adjusted rating (computed in JS, not the raw mean).
 export async function getLeaderboard(limit = 50): Promise<LeaderboardRow[]> {
   const sb = getSupabaseAdmin();
   const { data } = await sb
     .from("trainer_stats")
-    .select("user_id, rating, hands_played, graded_decisions")
+    .select("user_id, quality_sum, hands_played, graded_decisions")
     .gte("graded_decisions", MIN_QUALIFYING_DECISIONS)
-    .order("rating", { ascending: false })
-    .order("graded_decisions", { ascending: false })
-    .limit(limit);
+    .limit(200);
 
-  const rows = data ?? [];
+  const rows = (data ?? [])
+    .map((r) => ({
+      ...r,
+      adjusted: shrunkRating(Number(r.quality_sum), r.graded_decisions),
+    }))
+    .sort(
+      (a, b) =>
+        b.adjusted - a.adjusted || b.graded_decisions - a.graded_decisions,
+    )
+    .slice(0, limit);
+
   const names = await getUsernames(rows.map((r) => r.user_id));
   return rows.map((r, i) => ({
     rank: i + 1,
     username: names.get(r.user_id) ?? "?",
-    rating: Math.round(Number(r.rating)),
+    rating: Math.round(r.adjusted),
     handsPlayed: r.hands_played,
     decisions: r.graded_decisions,
   }));

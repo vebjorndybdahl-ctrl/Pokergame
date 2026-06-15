@@ -2,11 +2,37 @@ import { makeRng, type Card } from "./cards";
 import { legalActions, totalPot } from "./engine";
 import { estimateEquity } from "./equity";
 import { RANGE } from "./range";
-import type { Action, HandState } from "./types";
+import type { Action, ArchetypeKey, HandState } from "./types";
 
 // A player who is betting/raising into us has a stronger-than-random range.
 function rangeFor(toCallBb: number): number {
   return toCallBb > 0 ? RANGE.BET : 0;
+}
+
+// How strong each archetype's hand tends to be when THEY put money in — a
+// maniac bets air, a rock only bets the goods. Models the actual bettor.
+const BETTING_RANGE: Partial<Record<ArchetypeKey, number>> = {
+  maniac: 0.16,
+  station: 0.13,
+  shark: 0.44,
+  rock: 0.55,
+};
+
+// Range strength of whoever bet/raised into the hero this street — archetype-
+// aware on the mixed table, a generic betting range otherwise.
+function bettorRange(state: HandState): number {
+  const heroId = state.toAct;
+  let agg: HandState["seats"][number] | null = null;
+  let max = 0;
+  for (const s of state.seats) {
+    if (s.id === heroId || s.status === "folded") continue;
+    if (s.committedThisStreet > max) {
+      max = s.committedThisStreet;
+      agg = s;
+    }
+  }
+  if (!agg || max === 0) return 0; // nobody bet
+  return BETTING_RANGE[agg.botLevel as ArchetypeKey] ?? RANGE.BET;
 }
 
 export type Verdict = "optimal" | "bra" | "unøyaktig" | "feil" | "tabbe";
@@ -48,11 +74,16 @@ function recommendOf(
 }
 
 function verdictOf(evLoss: number): Verdict {
-  if (evLoss <= 0.05) return "optimal";
-  if (evLoss < 0.4) return "bra";
+  if (evLoss <= 0.1) return "optimal";
+  if (evLoss < 0.5) return "bra";
   if (evLoss < 1.2) return "unøyaktig";
-  if (evLoss < 2.8) return "feil";
+  if (evLoss < 2.4) return "feil";
   return "tabbe";
+}
+
+// Decision quality from EV loss (bb): full marks at 0, zero at ~2.4 bb lost.
+function qualityFromLoss(evLossBb: number): number {
+  return Math.max(0, Math.min(100, Math.round(100 * (1 - evLossBb / 2.4))));
 }
 
 // Core grader (all amounts in big blinds). Shared by live play and drills.
@@ -110,7 +141,7 @@ export function gradeCore(
     recommend,
     chosen,
     evLossBb,
-    qualityPct: Math.max(0, Math.min(100, Math.round(100 - evLossBb * 22))),
+    qualityPct: qualityFromLoss(evLossBb),
     verdict: verdictOf(evLossBb),
     explanation,
   };
@@ -132,7 +163,7 @@ export function analyzeSpot(
     opponents: Math.max(1, liveOpp),
     iterations,
     rng: spotRng([...seat.hole, ...state.board], state.stage.length),
-    oppMinStrength: rangeFor(legal.callAmount / state.bb),
+    oppMinStrength: bettorRange(state),
   }).equity;
   const potBb = totalPot(state) / state.bb;
   const toCallBb = legal.callAmount / state.bb;
@@ -162,7 +193,7 @@ export function scoreHeroDecision(
     opponents: Math.max(1, liveOpp),
     iterations,
     rng: spotRng([...seat.hole, ...state.board], state.stage.length),
-    oppMinStrength: rangeFor(legal.callAmount / state.bb),
+    oppMinStrength: bettorRange(state),
   }).equity;
 
   const chosen: ActionKind =
