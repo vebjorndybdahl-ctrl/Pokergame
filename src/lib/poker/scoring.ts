@@ -1,7 +1,13 @@
 import { makeRng, type Card } from "./cards";
 import { legalActions, totalPot } from "./engine";
 import { estimateEquity } from "./equity";
+import { RANGE } from "./range";
 import type { Action, HandState } from "./types";
+
+// A player who is betting/raising into us has a stronger-than-random range.
+function rangeFor(toCallBb: number): number {
+  return toCallBb > 0 ? RANGE.BET : 0;
+}
 
 export type Verdict = "optimal" | "bra" | "unøyaktig" | "feil" | "tabbe";
 export type ActionKind = "fold" | "check" | "call" | "raise";
@@ -126,6 +132,7 @@ export function analyzeSpot(
     opponents: Math.max(1, liveOpp),
     iterations,
     rng: spotRng([...seat.hole, ...state.board], state.stage.length),
+    oppMinStrength: rangeFor(legal.callAmount / state.bb),
   }).equity;
   const potBb = totalPot(state) / state.bb;
   const toCallBb = legal.callAmount / state.bb;
@@ -155,6 +162,7 @@ export function scoreHeroDecision(
     opponents: Math.max(1, liveOpp),
     iterations,
     rng: spotRng([...seat.hole, ...state.board], state.stage.length),
+    oppMinStrength: rangeFor(legal.callAmount / state.bb),
   }).equity;
 
   const chosen: ActionKind =
@@ -193,6 +201,7 @@ export function gradeRawSpot(
     opponents: Math.max(1, params.opponents),
     iterations,
     rng: spotRng([...params.hole, ...params.board], params.board.length + 7),
+    oppMinStrength: rangeFor(params.toCallBb),
   }).equity;
   return gradeCore(equity, params.potBb, params.toCallBb, true, chosen);
 }

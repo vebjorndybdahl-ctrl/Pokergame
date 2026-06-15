@@ -45,14 +45,13 @@ export const DRILLS: Drill[] = [
   },
   {
     id: "gutshot",
-    title: "Gutshot mot overbet",
-    prompt:
-      "Bare en indre straight-draw, og motstanderen overbetter — du må betale mer enn potten.",
+    title: "Gutshot uten pris",
+    prompt: "Bare en indre straight-draw, og motstanderen satser stort.",
     hole: ["Jd", "Td"],
     board: ["Ah", "Kc", "4s"],
     opponents: 1,
-    potBb: 5,
-    toCallBb: 8,
+    potBb: 6,
+    toCallBb: 4,
   },
   {
     id: "top-pair",
@@ -92,6 +91,6 @@ export const DRILLS: Drill[] = [
     board: ["Ks", "9d", "2c", "8s", "Jh"],
     opponents: 1,
     potBb: 8,
-    toCallBb: 9,
+    toCallBb: 6,
   },
 ];

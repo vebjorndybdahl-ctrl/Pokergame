@@ -1,6 +1,7 @@
 import type { Action, BotLevel, HandState } from "./types";
 import { legalActions, totalPot } from "./engine";
 import { estimateEquity } from "./equity";
+import { RANGE } from "./range";
 
 export type BotConfig = {
   label: string;
@@ -10,6 +11,7 @@ export type BotConfig = {
   raiseThreshold: number; // equity to value-raise
   bluffFreq: number; // chance to raise as a bluff
   size: "½ pott" | "¾ pott"; // preferred raise size
+  oppRange: number; // assumed strength of a bettor's range (0 = treat as random)
 };
 
 export const BOT_LEVELS: Record<BotLevel, BotConfig> = {
@@ -21,6 +23,7 @@ export const BOT_LEVELS: Record<BotLevel, BotConfig> = {
     raiseThreshold: 0.74,
     bluffFreq: 0,
     size: "½ pott",
+    oppRange: 0,
   },
   middels: {
     label: "Middels",
@@ -30,6 +33,7 @@ export const BOT_LEVELS: Record<BotLevel, BotConfig> = {
     raiseThreshold: 0.62,
     bluffFreq: 0.07,
     size: "½ pott",
+    oppRange: RANGE.LOOSE,
   },
   vanskelig: {
     label: "Vanskelig",
@@ -39,6 +43,7 @@ export const BOT_LEVELS: Record<BotLevel, BotConfig> = {
     raiseThreshold: 0.55,
     bluffFreq: 0.16,
     size: "¾ pott",
+    oppRange: RANGE.BET,
   },
 };
 
@@ -55,6 +60,7 @@ export function decideBotAction(state: HandState): Action {
     opponents: Math.max(1, liveOpp),
     iterations: cfg.iterations,
     rng: state.rng,
+    oppMinStrength: legal.callAmount > 0 ? cfg.oppRange : 0,
   }).equity;
   const pot = totalPot(state);
   const toCall = legal.callAmount;
