@@ -1,4 +1,10 @@
-import type { Action, BotLevel, HandState } from "./types";
+import type {
+  Action,
+  ArchetypeKey,
+  BotLevel,
+  BotPersona,
+  HandState,
+} from "./types";
 import { legalActions, totalPot } from "./engine";
 import { estimateEquity } from "./equity";
 import { RANGE } from "./range";
@@ -6,6 +12,7 @@ import { RANGE } from "./range";
 export type BotConfig = {
   label: string;
   blurb: string;
+  emoji?: string;
   iterations: number; // equity precision
   callMargin: number; // require equity >= potOdds + margin to call (negative = loose)
   raiseThreshold: number; // equity to value-raise
@@ -47,9 +54,67 @@ export const BOT_LEVELS: Record<BotLevel, BotConfig> = {
   },
 };
 
+// Individual personalities for the "blandet" table — each bot gets one, so you
+// face a mix of styles in the same hand and must read each opponent.
+export const ARCHETYPES: Record<ArchetypeKey, BotConfig> = {
+  shark: {
+    label: "Hai",
+    emoji: "🦈",
+    blurb: "Stram-aggressiv: spiller få hender, men presser dem hardt.",
+    iterations: 900,
+    callMargin: 0.06,
+    raiseThreshold: 0.58,
+    bluffFreq: 0.12,
+    size: "¾ pott",
+    oppRange: RANGE.BET,
+  },
+  maniac: {
+    label: "Maniac",
+    emoji: "🌪️",
+    blurb: "Løs-aggressiv: mange hender, mye press og bløff.",
+    iterations: 600,
+    callMargin: -0.1,
+    raiseThreshold: 0.5,
+    bluffFreq: 0.3,
+    size: "¾ pott",
+    oppRange: RANGE.LOOSE,
+  },
+  rock: {
+    label: "Klippen",
+    emoji: "🪨",
+    blurb: "Stram-passiv: folder mye, høyner bare med nøttene.",
+    iterations: 700,
+    callMargin: 0.12,
+    raiseThreshold: 0.74,
+    bluffFreq: 0,
+    size: "½ pott",
+    oppRange: RANGE.STRONG,
+  },
+  station: {
+    label: "Stasjon",
+    emoji: "🚉",
+    blurb: "Løs-passiv: caller nesten alt, høyner nesten aldri.",
+    iterations: 500,
+    callMargin: -0.2,
+    raiseThreshold: 0.82,
+    bluffFreq: 0,
+    size: "½ pott",
+    oppRange: 0,
+  },
+};
+
+export const ARCHETYPE_KEYS = Object.keys(ARCHETYPES) as ArchetypeKey[];
+
+// Combined lookup: difficulty levels + archetypes, keyed by persona.
+const BOT_CONFIGS: Record<string, BotConfig> = { ...BOT_LEVELS, ...ARCHETYPES };
+
+export function configFor(persona: BotPersona | undefined): BotConfig {
+  return (persona && BOT_CONFIGS[persona]) || BOT_LEVELS.middels;
+}
+
 export function decideBotAction(state: HandState): Action {
   const seat = state.seats[state.toAct];
-  const cfg = BOT_LEVELS[seat.botLevel ?? "middels"];
+  const cfg = configFor(seat.botLevel);
   const legal = legalActions(state);
   const liveOpp = state.seats.filter(
     (s) => s.status !== "folded" && s.id !== seat.id,

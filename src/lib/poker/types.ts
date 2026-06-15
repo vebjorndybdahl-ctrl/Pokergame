@@ -1,6 +1,9 @@
 import type { Card } from "./cards";
 
 export type BotLevel = "lett" | "middels" | "vanskelig";
+// Individual bot personalities, used by the "blandet" (mixed) table.
+export type ArchetypeKey = "shark" | "maniac" | "rock" | "station";
+export type BotPersona = BotLevel | ArchetypeKey;
 
 export type Stage =
   | "preflop"
@@ -21,7 +24,7 @@ export type SeatState = {
   hole: Card[];
   status: SeatStatus;
   isHero: boolean;
-  botLevel?: BotLevel;
+  botLevel?: BotPersona;
   hasActed: boolean; // acted since the last full raise this street
 };
 

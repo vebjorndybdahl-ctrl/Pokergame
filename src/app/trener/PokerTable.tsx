@@ -12,7 +12,12 @@ import {
   totalPot,
 } from "@/lib/poker/engine";
 import { describeRank } from "@/lib/poker/evaluator";
-import { decideBotAction, BOT_LEVELS } from "@/lib/poker/bot";
+import {
+  decideBotAction,
+  BOT_LEVELS,
+  ARCHETYPES,
+  ARCHETYPE_KEYS,
+} from "@/lib/poker/bot";
 import {
   analyzeSpot,
   scoreHeroDecision,
@@ -21,10 +26,13 @@ import {
 } from "@/lib/poker/scoring";
 import type {
   Action,
+  ArchetypeKey,
   BotLevel,
   HandState,
   ShowdownResult,
 } from "@/lib/poker/types";
+
+type Difficulty = BotLevel | "blandet";
 import { EMPTY_STATS, type StyleStats } from "@/lib/poker/style";
 import { PlayingCard } from "./PlayingCard";
 import StyleAnalysis from "./StyleAnalysis";
@@ -34,7 +42,24 @@ const START_STACK = 1000;
 const SB = 10;
 const BB = 20;
 const BOT_NAMES = ["Rex", "Nova", "Zara", "Milo", "Ivy"];
-const LEVELS: BotLevel[] = ["lett", "middels", "vanskelig"];
+
+const DIFFICULTIES: { key: Difficulty; label: string; blurb: string }[] = [
+  { key: "lett", label: "Lett", blurb: BOT_LEVELS.lett.blurb },
+  { key: "middels", label: "Middels", blurb: BOT_LEVELS.middels.blurb },
+  { key: "vanskelig", label: "Vanskelig", blurb: BOT_LEVELS.vanskelig.blurb },
+  {
+    key: "blandet",
+    label: "Blandet",
+    blurb:
+      "Hver motstander har sin egen stil — hai, maniac, klippe eller stasjon. Lær å lese typene.",
+  },
+];
+const DIFF_LABEL: Record<Difficulty, string> = {
+  lett: "Lett",
+  middels: "Middels",
+  vanskelig: "Vanskelig",
+  blandet: "Blandet",
+};
 const RECO_LABEL: Record<string, string> = {
   fold: "fold",
   check: "sjekk",
@@ -55,7 +80,7 @@ export default function PokerTable({
   username: string | null;
 }) {
   const [tableSize, setTableSize] = useState(4);
-  const [difficulty, setDifficulty] = useState<BotLevel>("middels");
+  const [difficulty, setDifficulty] = useState<Difficulty>("middels");
   const [phase, setPhase] = useState<"setup" | "playing" | "showdown">("setup");
   const [hand, setHand] = useState<HandState | null>(null);
   const [result, setResult] = useState<ShowdownResult | null>(null);
@@ -68,6 +93,17 @@ export default function PokerTable({
   const handVpipRef = useRef(false);
   const handPfrRef = useRef(false);
   const savedRef = useRef(false);
+  // Stable per-bot archetypes for the "blandet" table (Rex stays a maniac).
+  const personasRef = useRef<ArchetypeKey[]>([]);
+
+  const chooseDifficulty = useCallback((d: Difficulty) => {
+    personasRef.current = [];
+    setDifficulty(d);
+  }, []);
+  const chooseTableSize = useCallback((n: number) => {
+    personasRef.current = [];
+    setTableSize(n);
+  }, []);
 
   const touch = useCallback(() => setHand((h) => (h ? { ...h } : h)), []);
 
@@ -75,6 +111,18 @@ export default function PokerTable({
     handVpipRef.current = false;
     handPfrRef.current = false;
     savedRef.current = false;
+
+    // Assign stable archetypes the first hand of a mixed-table session.
+    if (
+      difficulty === "blandet" &&
+      personasRef.current.length !== tableSize - 1
+    ) {
+      personasRef.current = Array.from(
+        { length: tableSize - 1 },
+        () => ARCHETYPE_KEYS[Math.floor(Math.random() * ARCHETYPE_KEYS.length)],
+      );
+    }
+
     setHand((prev) => {
       const seats: Parameters<typeof createHand>[0]["seats"] = [
         { name: username ?? "Deg", stack: START_STACK, isHero: true },
@@ -84,7 +132,8 @@ export default function PokerTable({
           name: BOT_NAMES[i],
           stack: START_STACK,
           isHero: false,
-          botLevel: difficulty,
+          botLevel:
+            difficulty === "blandet" ? personasRef.current[i] : difficulty,
         });
       }
       if (prev && prev.seats.length === seats.length) {
@@ -188,7 +237,7 @@ export default function PokerTable({
       hands: 1,
       decisions: coachLog.length,
       qualitySum,
-      difficulty,
+      difficulty: difficulty === "blandet" ? "middels" : difficulty,
     }).catch(() => {});
   }, [phase, isLoggedIn, coachLog, difficulty]);
 
@@ -206,9 +255,9 @@ export default function PokerTable({
     return (
       <Setup
         tableSize={tableSize}
-        setTableSize={setTableSize}
+        setTableSize={chooseTableSize}
         difficulty={difficulty}
-        setDifficulty={setDifficulty}
+        setDifficulty={chooseDifficulty}
         onStart={startHand}
         isLoggedIn={isLoggedIn}
       />
@@ -229,7 +278,7 @@ export default function PokerTable({
       {/* Top bar */}
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="text-xs text-zinc-500">
-          {BOT_LEVELS[difficulty].label} · {st.seats.length} spillere
+          {DIFF_LABEL[difficulty]} · {st.seats.length} spillere
           {sessionQuality !== null && (
             <>
               {" · "}
@@ -283,6 +332,9 @@ export default function PokerTable({
               const isActive = st.toAct === i && phase === "playing";
               const revealCards =
                 !seat.isHero && showdown && seat.status !== "folded";
+              const persona = seat.isHero
+                ? undefined
+                : ARCHETYPES[seat.botLevel as ArchetypeKey];
               return (
                 <div
                   key={seat.id}
@@ -302,10 +354,20 @@ export default function PokerTable({
                           D
                         </span>
                       )}
+                      {persona && (
+                        <span title={persona.label} className="text-xs leading-none">
+                          {persona.emoji}
+                        </span>
+                      )}
                       <span className="truncate text-xs font-semibold text-white">
                         {seat.isHero ? "Deg" : seat.name}
                       </span>
                     </div>
+                    {persona && (
+                      <span className="text-[9px] font-medium text-amber-200/70">
+                        {persona.label}
+                      </span>
+                    )}
 
                     {!seat.isHero && (
                       <div className="flex gap-0.5">
@@ -435,8 +497,8 @@ function Setup({
 }: {
   tableSize: number;
   setTableSize: (n: number) => void;
-  difficulty: BotLevel;
-  setDifficulty: (l: BotLevel) => void;
+  difficulty: Difficulty;
+  setDifficulty: (d: Difficulty) => void;
   onStart: () => void;
   isLoggedIn: boolean;
 }) {
@@ -453,22 +515,24 @@ function Setup({
 
       <div className="glass animate-rise mt-7 rounded-3xl p-6">
         <div className="text-sm font-semibold text-zinc-200">Vanskelighet</div>
-        <div className="mt-2 grid grid-cols-3 gap-2">
-          {LEVELS.map((l) => (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {DIFFICULTIES.map((d) => (
             <button
-              key={l}
-              onClick={() => setDifficulty(l)}
-              className={`rounded-lg border py-2 text-sm font-bold capitalize transition ${
-                difficulty === l
+              key={d.key}
+              onClick={() => setDifficulty(d.key)}
+              className={`rounded-lg border py-2 text-sm font-bold transition ${
+                difficulty === d.key
                   ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
                   : "border-white/10 text-zinc-400 hover:border-white/25"
               }`}
             >
-              {BOT_LEVELS[l].label}
+              {d.label}
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-zinc-500">{BOT_LEVELS[difficulty].blurb}</p>
+        <p className="mt-2 text-xs text-zinc-500">
+          {DIFFICULTIES.find((d) => d.key === difficulty)?.blurb}
+        </p>
 
         <div className="mt-5 text-sm font-semibold text-zinc-200">
           Antall spillere
