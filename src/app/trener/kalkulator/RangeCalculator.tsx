@@ -12,6 +12,8 @@ import {
 } from "@/lib/poker/grid";
 import HandGrid from "./HandGrid";
 
+type VillainMode = "range" | "hand";
+
 function CardSelect({
   value,
   onChange,
@@ -39,38 +41,43 @@ function CardSelect({
   );
 }
 
+type Result = { equity: number; win: number; tie: number; rangePct: number };
+
 export default function RangeCalculator() {
   const grid = useMemo(() => buildGrid(), []);
   const [hero, setHero] = useState<[Card | null, Card | null]>([
     parseCard("As"),
     parseCard("Ks"),
   ]);
-  const [board, setBoard] = useState<(Card | null)[]>([
-    null,
-    null,
-    null,
-    null,
-    null,
-  ]);
+  const [board, setBoard] = useState<(Card | null)[]>([null, null, null, null, null]);
+  const [mode, setMode] = useState<VillainMode>("range");
   const [selected, setSelected] = useState<Set<string>>(() =>
     topPercentKeys(grid, 20),
   );
-  const [result, setResult] = useState<{
-    equity: number;
-    rangePct: number;
-  } | null>(null);
+  const [villainHand, setVillainHand] = useState<[Card | null, Card | null]>([
+    parseCard("Qd"),
+    parseCard("Qc"),
+  ]);
+  const [result, setResult] = useState<Result | null>(null);
   const [computing, setComputing] = useState(false);
 
   const used = useMemo(() => {
     const s = new Set<Card>();
     for (const c of hero) if (c !== null) s.add(c);
     for (const c of board) if (c !== null) s.add(c);
+    if (mode === "hand") for (const c of villainHand) if (c !== null) s.add(c);
     return s;
-  }, [hero, board]);
+  }, [hero, board, villainHand, mode]);
 
   const selectedCombos = combosOf(grid, selected);
   const rangePct = Math.round((selectedCombos / TOTAL_COMBOS) * 100);
   const heroReady = hero[0] !== null && hero[1] !== null && hero[0] !== hero[1];
+  const villainReady =
+    mode === "range"
+      ? selected.size > 0
+      : villainHand[0] !== null &&
+        villainHand[1] !== null &&
+        villainHand[0] !== villainHand[1];
 
   function toggle(key: string) {
     setSelected((prev) => {
@@ -83,38 +90,41 @@ export default function RangeCalculator() {
   }
 
   function preset(pct: number | "all" | "clear") {
-    if (pct === "all") {
-      setSelected(new Set(grid.flat().map((c) => c.key)));
-    } else if (pct === "clear") {
-      setSelected(new Set());
-    } else {
-      setSelected(topPercentKeys(grid, pct));
-    }
+    if (pct === "all") setSelected(new Set(grid.flat().map((c) => c.key)));
+    else if (pct === "clear") setSelected(new Set());
+    else setSelected(topPercentKeys(grid, pct));
     setResult(null);
   }
 
   function compute() {
-    if (!heroReady || selected.size === 0) return;
+    if (!heroReady || !villainReady) return;
     setComputing(true);
     setResult(null);
     requestAnimationFrame(() => {
-      const dead = new Set<Card>(used);
       const boardCards = board.filter((c): c is Card => c !== null);
-      const villain = expandCombos(grid, selected, dead);
+      const villain: [Card, Card][] =
+        mode === "range"
+          ? expandCombos(grid, selected, new Set<Card>(used))
+          : [[villainHand[0] as Card, villainHand[1] as Card]];
       const r = rangeEquity({
         hero: [hero[0] as Card, hero[1] as Card],
         board: boardCards,
         villain,
-        iterations: 10000,
+        iterations: 12000,
       });
-      setResult({ equity: r.equity, rangePct });
+      setResult({
+        equity: r.equity,
+        win: r.win,
+        tie: r.tie,
+        rangePct,
+      });
       setComputing(false);
     });
   }
 
   return (
     <div className="space-y-5">
-      {/* Hero hand */}
+      {/* Hero hand + board */}
       <div className="glass rounded-2xl p-5">
         <div className="text-sm font-semibold text-zinc-200">Din hånd</div>
         <div className="mt-2 flex gap-2">
@@ -156,56 +166,99 @@ export default function RangeCalculator() {
         </div>
       </div>
 
-      {/* Opponent range */}
+      {/* Opponent */}
       <div className="glass rounded-2xl p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-sm font-semibold text-zinc-200">
-            Motstanderens range
-          </span>
-          <span className="text-xs text-zinc-400">
-            {rangePct}% · {selectedCombos} kombinasjoner
-          </span>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-zinc-200">Motstander</span>
+          <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
+            {(["range", "hand"] as VillainMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setMode(m);
+                  setResult(null);
+                }}
+                className={`rounded-md px-3 py-1 font-semibold transition ${
+                  mode === m
+                    ? "bg-emerald-500/20 text-emerald-200"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                {m === "range" ? "Range" : "Hånd"}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="mb-3 flex flex-wrap gap-1.5 text-xs">
-          {[10, 20, 40].map((p) => (
-            <button
-              key={p}
-              onClick={() => preset(p)}
-              className="rounded-lg border border-white/10 px-2.5 py-1 font-medium text-zinc-300 transition hover:border-emerald-400/40 hover:text-white"
-            >
-              Topp {p}%
-            </button>
-          ))}
-          <button
-            onClick={() => preset("all")}
-            className="rounded-lg border border-white/10 px-2.5 py-1 font-medium text-zinc-300 transition hover:border-white/25"
-          >
-            Alle
-          </button>
-          <button
-            onClick={() => preset("clear")}
-            className="rounded-lg border border-white/10 px-2.5 py-1 font-medium text-zinc-400 transition hover:text-rose-300"
-          >
-            Tøm
-          </button>
-        </div>
-        <HandGrid grid={grid} selected={selected} onToggle={toggle} />
-        <p className="mt-2 text-[11px] text-zinc-500">
-          Trykk på hender for å bygge rangen. Diagonalen er par, over er samme
-          sort (s), under er ulik sort (o).
-        </p>
+
+        {mode === "hand" ? (
+          <div className="flex gap-2">
+            <CardSelect
+              value={villainHand[0]}
+              onChange={(c) => {
+                setVillainHand([c, villainHand[1]]);
+                setResult(null);
+              }}
+              used={used}
+            />
+            <CardSelect
+              value={villainHand[1]}
+              onChange={(c) => {
+                setVillainHand([villainHand[0], c]);
+                setResult(null);
+              }}
+              used={used}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
+              <div className="flex flex-wrap gap-1.5">
+                {[10, 20, 40].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => preset(p)}
+                    className="rounded-lg border border-white/10 px-2.5 py-1 font-medium text-zinc-300 transition hover:border-emerald-400/40 hover:text-white"
+                  >
+                    Topp {p}%
+                  </button>
+                ))}
+                <button
+                  onClick={() => preset("all")}
+                  className="rounded-lg border border-white/10 px-2.5 py-1 font-medium text-zinc-300 transition hover:border-white/25"
+                >
+                  Alle
+                </button>
+                <button
+                  onClick={() => preset("clear")}
+                  className="rounded-lg border border-white/10 px-2.5 py-1 font-medium text-zinc-400 transition hover:text-rose-300"
+                >
+                  Tøm
+                </button>
+              </div>
+              <span>
+                {rangePct}% · {selectedCombos} komb.
+              </span>
+            </div>
+            <HandGrid grid={grid} selected={selected} onToggle={toggle} />
+            <p className="mt-2 text-[11px] text-zinc-500">
+              Trykk på hender for å bygge rangen. Diagonalen er par, over er
+              samme sort (s), under er ulik sort (o).
+            </p>
+          </>
+        )}
       </div>
 
-      {/* Compute */}
       <button
         onClick={compute}
-        disabled={!heroReady || selected.size === 0 || computing}
+        disabled={!heroReady || !villainReady || computing}
         className="btn-gold w-full rounded-xl px-4 py-3 font-bold tracking-wide disabled:opacity-50"
       >
         {computing ? "Regner…" : "Beregn equity"}
       </button>
-      {!heroReady && (
-        <p className="text-center text-xs text-zinc-500">Velg to ulike kort.</p>
+      {(!heroReady || !villainReady) && (
+        <p className="text-center text-xs text-zinc-500">
+          Velg din hånd og motstanderens {mode === "hand" ? "hånd" : "range"}.
+        </p>
       )}
 
       {result && (
@@ -223,7 +276,16 @@ export default function RangeCalculator() {
             />
           </div>
           <div className="mt-3 text-sm text-zinc-300">
-            mot en {result.rangePct}% range
+            {mode === "hand" ? (
+              <>
+                vinner {Math.round(result.win * 100)}%
+                {result.tie > 0.005 && (
+                  <> · uavgjort {Math.round(result.tie * 100)}%</>
+                )}
+              </>
+            ) : (
+              <>mot en {result.rangePct}% range</>
+            )}
           </div>
         </div>
       )}

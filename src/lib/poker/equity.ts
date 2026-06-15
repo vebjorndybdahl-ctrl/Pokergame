@@ -108,7 +108,7 @@ export function rangeEquity(opts: {
   villain: [Card, Card][];
   iterations?: number;
   rng?: () => number;
-}): { equity: number; samples: number } {
+}): { equity: number; win: number; tie: number; samples: number } {
   const board = opts.board ?? [];
   const iterations = opts.iterations ?? 8000;
   const rng = opts.rng ?? makeRng(0x1234567);
@@ -118,13 +118,15 @@ export function rangeEquity(opts: {
   for (const c of board) dead[c] = 1;
 
   const combos = opts.villain.filter(([a, b]) => !dead[a] && !dead[b]);
-  if (combos.length === 0) return { equity: 0, samples: 0 };
+  if (combos.length === 0)
+    return { equity: 0, win: 0, tie: 0, samples: 0 };
 
   const needBoard = 5 - board.length;
   const heroCards = [opts.hero[0], opts.hero[1], 0, 0, 0, 0, 0];
   const oppCards = [0, 0, 0, 0, 0, 0, 0];
 
-  let winSum = 0;
+  let wins = 0;
+  let ties = 0;
   let samples = 0;
   for (let it = 0; it < iterations; it++) {
     const [va, vb] = combos[Math.floor(rng() * combos.length)];
@@ -157,9 +159,15 @@ export function rangeEquity(opts: {
     const hs = evaluate7(heroCards);
     const os = evaluate7(oppCards);
     samples++;
-    if (hs > os) winSum += 1;
-    else if (hs === os) winSum += 0.5;
+    if (hs > os) wins++;
+    else if (hs === os) ties++;
   }
 
-  return { equity: samples ? winSum / samples : 0, samples };
+  if (!samples) return { equity: 0, win: 0, tie: 0, samples: 0 };
+  return {
+    equity: (wins + ties / 2) / samples,
+    win: wins / samples,
+    tie: ties / samples,
+    samples,
+  };
 }
