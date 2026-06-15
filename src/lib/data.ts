@@ -13,7 +13,11 @@ import type {
   FriendRequests,
   DirectoryUser,
   InviteInfo,
+  TrainerStats,
+  LeaderboardRow,
 } from "./types";
+
+const MIN_QUALIFYING_DECISIONS = 50; // graded decisions needed to rank
 
 export async function getSeriesById(id: string): Promise<Series | null> {
   const sb = getSupabaseAdmin();
@@ -437,3 +441,46 @@ export async function getInvitableFriends(
   ]);
   return friends.filter((f) => !excluded.has(f.userId));
 }
+
+// ---------- Poker trainer ----------
+
+export async function getTrainerStats(
+  userId: string,
+): Promise<TrainerStats | null> {
+  const sb = getSupabaseAdmin();
+  const { data } = await sb
+    .from("trainer_stats")
+    .select("hands_played, graded_decisions, rating")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    handsPlayed: data.hands_played,
+    gradedDecisions: data.graded_decisions,
+    rating: Number(data.rating),
+  };
+}
+
+// Top players by skill rating, among those past the qualifying threshold.
+export async function getLeaderboard(limit = 50): Promise<LeaderboardRow[]> {
+  const sb = getSupabaseAdmin();
+  const { data } = await sb
+    .from("trainer_stats")
+    .select("user_id, rating, hands_played, graded_decisions")
+    .gte("graded_decisions", MIN_QUALIFYING_DECISIONS)
+    .order("rating", { ascending: false })
+    .order("graded_decisions", { ascending: false })
+    .limit(limit);
+
+  const rows = data ?? [];
+  const names = await getUsernames(rows.map((r) => r.user_id));
+  return rows.map((r, i) => ({
+    rank: i + 1,
+    username: names.get(r.user_id) ?? "?",
+    rating: Math.round(Number(r.rating)),
+    handsPlayed: r.hands_played,
+    decisions: r.graded_decisions,
+  }));
+}
+
+export const TRAINER_MIN_DECISIONS = MIN_QUALIFYING_DECISIONS;

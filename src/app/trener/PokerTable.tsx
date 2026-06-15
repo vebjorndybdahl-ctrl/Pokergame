@@ -27,6 +27,7 @@ import type {
 import { EMPTY_STATS, type StyleStats } from "@/lib/poker/style";
 import { PlayingCard } from "./PlayingCard";
 import StyleAnalysis from "./StyleAnalysis";
+import { recordSession } from "./actions";
 
 const START_STACK = 1000;
 const SB = 10;
@@ -65,12 +66,14 @@ export default function PokerTable({
   const buttonRef = useRef(0);
   const handVpipRef = useRef(false);
   const handPfrRef = useRef(false);
+  const savedRef = useRef(false);
 
   const touch = useCallback(() => setHand((h) => (h ? { ...h } : h)), []);
 
   const startHand = useCallback(() => {
     handVpipRef.current = false;
     handPfrRef.current = false;
+    savedRef.current = false;
     setHand((prev) => {
       const seats: Parameters<typeof createHand>[0]["seats"] = [
         { name: username ?? "Deg", stack: START_STACK, isHero: true },
@@ -173,6 +176,20 @@ export default function PokerTable({
     },
     [hand, applyAndSync],
   );
+
+  // Persist a completed hand for logged-in players (fire-and-forget).
+  useEffect(() => {
+    if (phase !== "showdown" || !isLoggedIn || savedRef.current) return;
+    if (coachLog.length === 0) return;
+    savedRef.current = true;
+    const qualitySum = coachLog.reduce((s, d) => s + d.qualityPct, 0);
+    recordSession({
+      hands: 1,
+      decisions: coachLog.length,
+      qualitySum,
+      difficulty,
+    }).catch(() => {});
+  }, [phase, isLoggedIn, coachLog, difficulty]);
 
   const heroTurnPre =
     phase === "playing" &&

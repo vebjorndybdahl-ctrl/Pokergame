@@ -116,3 +116,26 @@ export type InviteInfo = {
   seriesName: string;
   inviterUsername: string;
 };
+
+// ----- Poker trainer -----
+
+export type SessionResult = {
+  hands: number;
+  decisions: number;
+  qualitySum: number; // sum of per-decision quality (0..100)
+  difficulty: "lett" | "middels" | "vanskelig";
+};
+
+export type TrainerStats = {
+  handsPlayed: number;
+  gradedDecisions: number;
+  rating: number;
+};
+
+export type LeaderboardRow = {
+  rank: number;
+  username: string;
+  rating: number;
+  handsPlayed: number;
+  decisions: number;
+};
