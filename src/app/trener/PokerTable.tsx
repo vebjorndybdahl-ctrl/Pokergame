@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { makeRng } from "@/lib/poker/cards";
 import {
   createHand,
@@ -10,9 +10,20 @@ import {
   settle,
   totalPot,
 } from "@/lib/poker/engine";
-import { estimateEquity } from "@/lib/poker/equity";
 import { describeRank } from "@/lib/poker/evaluator";
-import type { Action, HandState, ShowdownResult } from "@/lib/poker/types";
+import { decideBotAction, BOT_LEVELS } from "@/lib/poker/bot";
+import {
+  analyzeSpot,
+  scoreHeroDecision,
+  VERDICT_META,
+  type DecisionScore,
+} from "@/lib/poker/scoring";
+import type {
+  Action,
+  BotLevel,
+  HandState,
+  ShowdownResult,
+} from "@/lib/poker/types";
 import { EMPTY_STATS, type StyleStats } from "@/lib/poker/style";
 import { PlayingCard } from "./PlayingCard";
 import StyleAnalysis from "./StyleAnalysis";
@@ -21,47 +32,17 @@ const START_STACK = 1000;
 const SB = 10;
 const BB = 20;
 const BOT_NAMES = ["Rex", "Nova", "Zara", "Milo", "Ivy"];
+const LEVELS: BotLevel[] = ["lett", "middels", "vanskelig"];
+const RECO_LABEL: Record<string, string> = {
+  fold: "fold",
+  check: "sjekk",
+  call: "call",
+  raise: "høyne",
+};
 
 function bb(chips: number): string {
   const v = chips / BB;
   return Number.isInteger(v) ? `${v}bb` : `${v.toFixed(1)}bb`;
-}
-
-// Basic equity-vs-pot-odds bot (difficulty levels arrive in Phase 3).
-function basicBotAction(state: HandState): Action {
-  const seat = state.seats[state.toAct];
-  const legal = legalActions(state);
-  const liveOpponents = state.seats.filter(
-    (s) => s.status !== "folded" && s.id !== seat.id,
-  ).length;
-  const eq = estimateEquity({
-    hero: seat.hole,
-    board: state.board,
-    opponents: Math.max(1, liveOpponents),
-    iterations: 600,
-    rng: state.rng,
-  }).equity;
-  const pot = totalPot(state);
-  const toCall = legal.callAmount;
-
-  if (legal.canCheck) {
-    if (eq > 0.6 && legal.canRaise && state.rng() < 0.7) {
-      const size = legal.sizes.find((s) => s.label === "½ pott") ?? legal.sizes[0];
-      return { seat: seat.id, type: "raise", amount: size.to };
-    }
-    return { seat: seat.id, type: "check" };
-  }
-
-  const potOdds = toCall / (pot + toCall);
-  if (eq > 0.82 && legal.canRaise) {
-    const size =
-      legal.sizes.find((s) => s.label === "¾ pott") ??
-      legal.sizes[legal.sizes.length - 1];
-    return { seat: seat.id, type: "raise", amount: size.to };
-  }
-  if (eq >= potOdds + 0.03) return { seat: seat.id, type: "call" };
-  if (toCall <= BB && eq > 0.25) return { seat: seat.id, type: "call" };
-  return { seat: seat.id, type: "fold" };
 }
 
 export default function PokerTable({
@@ -72,11 +53,15 @@ export default function PokerTable({
   username: string | null;
 }) {
   const [tableSize, setTableSize] = useState(4);
+  const [difficulty, setDifficulty] = useState<BotLevel>("middels");
   const [phase, setPhase] = useState<"setup" | "playing" | "showdown">("setup");
   const [hand, setHand] = useState<HandState | null>(null);
   const [result, setResult] = useState<ShowdownResult | null>(null);
   const [stats, setStats] = useState<StyleStats>(EMPTY_STATS);
   const [showStyle, setShowStyle] = useState(false);
+  const [hintOn, setHintOn] = useState(false);
+  const [coachLog, setCoachLog] = useState<DecisionScore[]>([]);
+  const [coach, setCoach] = useState({ decisions: 0, qualitySum: 0 });
   const buttonRef = useRef(0);
   const handVpipRef = useRef(false);
   const handPfrRef = useRef(false);
@@ -95,7 +80,7 @@ export default function PokerTable({
           name: BOT_NAMES[i],
           stack: START_STACK,
           isHero: false,
-          botLevel: "middels",
+          botLevel: difficulty,
         });
       }
       if (prev && prev.seats.length === seats.length) {
@@ -117,9 +102,10 @@ export default function PokerTable({
       });
     });
     setStats((s) => ({ ...s, hands: s.hands + 1 }));
+    setCoachLog([]);
     setResult(null);
     setPhase("playing");
-  }, [tableSize, username]);
+  }, [tableSize, difficulty, username]);
 
   const applyAndSync = useCallback(
     (st: HandState, action: Action) => {
@@ -133,14 +119,14 @@ export default function PokerTable({
     [touch],
   );
 
-  // Bots: act after a natural, variable pause (1.4–2.9s).
+  // Bots act after a natural, variable pause.
   useEffect(() => {
     if (phase !== "playing" || !hand) return;
     const seat = hand.seats[hand.toAct];
     if (!seat || seat.isHero) return;
     const delay = 1400 + Math.floor(Math.random() * 1500);
     const id = setTimeout(() => {
-      applyAndSync(hand, basicBotAction(hand));
+      applyAndSync(hand, decideBotAction(hand));
     }, delay);
     return () => clearTimeout(id);
   }, [hand, phase, applyAndSync]);
@@ -149,6 +135,15 @@ export default function PokerTable({
     (action: Action) => {
       if (!hand) return;
       const stage = hand.stage;
+
+      // Grade the decision (EV heuristic) for coaching + style.
+      const score = scoreHeroDecision(hand, action);
+      setCoachLog((l) => [...l, score]);
+      setCoach((c) => ({
+        decisions: c.decisions + 1,
+        qualitySum: c.qualitySum + score.qualityPct,
+      }));
+
       setStats((s) => {
         const ns = { ...s };
         if (action.type === "raise") {
@@ -179,11 +174,23 @@ export default function PokerTable({
     [hand, applyAndSync],
   );
 
+  const heroTurnPre =
+    phase === "playing" &&
+    !!hand &&
+    hand.toAct >= 0 &&
+    hand.seats[hand.toAct].isHero;
+  const hint = useMemo(
+    () => (heroTurnPre && hintOn && hand ? analyzeSpot(hand, 1200) : null),
+    [hand, hintOn, heroTurnPre],
+  );
+
   if (phase === "setup" || !hand) {
     return (
       <Setup
         tableSize={tableSize}
         setTableSize={setTableSize}
+        difficulty={difficulty}
+        setDifficulty={setDifficulty}
         onStart={startHand}
         isLoggedIn={isLoggedIn}
       />
@@ -196,14 +203,21 @@ export default function PokerTable({
   const heroTurn =
     phase === "playing" && st.toAct >= 0 && st.seats[st.toAct].isHero;
   const showdown = phase === "showdown";
-  const blinds = `${SB / BB}/${BB / BB} bb`;
+  const sessionQuality =
+    coach.decisions > 0 ? Math.round(coach.qualitySum / coach.decisions) : null;
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-3 py-4">
       {/* Top bar */}
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <div className="text-xs text-zinc-500">
-          Blinds {blinds} · {st.seats.length} spillere
+          {BOT_LEVELS[difficulty].label} · {st.seats.length} spillere
+          {sessionQuality !== null && (
+            <>
+              {" · "}
+              <span className="text-emerald-300">kvalitet {sessionQuality}%</span>
+            </>
+          )}
         </div>
         <button
           onClick={() => setShowStyle(true)}
@@ -229,7 +243,6 @@ export default function PokerTable({
               boxShadow: "inset 0 0 60px rgba(0,0,0,0.55)",
             }}
           >
-            {/* Center: pot + board */}
             <div className="absolute left-1/2 top-[40%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2.5">
               <div className="rounded-full bg-black/35 px-4 py-1 text-sm font-bold text-amber-200 ring-1 ring-amber-300/20">
                 Pott {bb(pot)}
@@ -245,7 +258,6 @@ export default function PokerTable({
               </div>
             </div>
 
-            {/* Seats */}
             {st.seats.map((seat, i) => {
               const angle = Math.PI / 2 + (i / st.seats.length) * 2 * Math.PI;
               const left = 50 + 37 * Math.cos(angle);
@@ -307,7 +319,6 @@ export default function PokerTable({
                     )}
                   </div>
 
-                  {/* Current bet chip toward the centre */}
                   {seat.committedThisStreet > 0 && (
                     <div className="mt-1 text-center text-[10px] font-bold text-amber-300/90">
                       {bb(seat.committedThisStreet)}
@@ -324,7 +335,6 @@ export default function PokerTable({
           </div>
         </div>
 
-        {/* Style overlay */}
         {showStyle && (
           <div className="absolute inset-0 z-30 flex items-center justify-center rounded-[44%] bg-black/85 p-3">
             <div className="w-full max-w-sm rounded-2xl bg-zinc-950/95">
@@ -348,11 +358,41 @@ export default function PokerTable({
           </div>
         </div>
 
+        {/* Coaching hint */}
+        {heroTurn && (
+          <div className="mb-2 flex items-center justify-center gap-2 text-xs">
+            <button
+              onClick={() => setHintOn((v) => !v)}
+              className={`rounded-full border px-3 py-1 font-medium transition ${
+                hintOn
+                  ? "border-amber-300/40 bg-amber-300/10 text-amber-200"
+                  : "border-white/10 text-zinc-400 hover:text-white"
+              }`}
+            >
+              💡 Tips {hintOn ? "på" : "av"}
+            </button>
+            {hint && (
+              <span className="text-zinc-400">
+                equity ~{Math.round(hint.equity * 100)}%
+                {hint.toCall > 0 && (
+                  <> · pott-odds {Math.round(hint.potOdds * 100)}%</>
+                )}{" "}
+                · anbefalt:{" "}
+                <span className="font-semibold text-amber-200">
+                  {RECO_LABEL[hint.recommend]}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
+
         {heroTurn && <BetControls state={st} onAct={heroAct} />}
         {showdown && result && (
           <Showdown
             state={st}
             result={result}
+            coachLog={coachLog}
+            sessionQuality={sessionQuality}
             onNext={startHand}
             isLoggedIn={isLoggedIn}
           />
@@ -370,11 +410,15 @@ export default function PokerTable({
 function Setup({
   tableSize,
   setTableSize,
+  difficulty,
+  setDifficulty,
   onStart,
   isLoggedIn,
 }: {
   tableSize: number;
   setTableSize: (n: number) => void;
+  difficulty: BotLevel;
+  setDifficulty: (l: BotLevel) => void;
   onStart: () => void;
   isLoggedIn: boolean;
 }) {
@@ -390,7 +434,27 @@ function Setup({
       </div>
 
       <div className="glass animate-rise mt-7 rounded-3xl p-6">
-        <div className="text-sm font-semibold text-zinc-200">Antall spillere</div>
+        <div className="text-sm font-semibold text-zinc-200">Vanskelighet</div>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {LEVELS.map((l) => (
+            <button
+              key={l}
+              onClick={() => setDifficulty(l)}
+              className={`rounded-lg border py-2 text-sm font-bold capitalize transition ${
+                difficulty === l
+                  ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                  : "border-white/10 text-zinc-400 hover:border-white/25"
+              }`}
+            >
+              {BOT_LEVELS[l].label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">{BOT_LEVELS[difficulty].blurb}</p>
+
+        <div className="mt-5 text-sm font-semibold text-zinc-200">
+          Antall spillere
+        </div>
         <div className="mt-2 grid grid-cols-4 gap-2">
           {[3, 4, 5, 6].map((n) => (
             <button
@@ -406,6 +470,7 @@ function Setup({
             </button>
           ))}
         </div>
+
         <button
           onClick={onStart}
           className="btn-gold mt-5 w-full rounded-xl px-4 py-3 font-bold tracking-wide"
@@ -485,11 +550,15 @@ function BetControls({
 function Showdown({
   state,
   result,
+  coachLog,
+  sessionQuality,
   onNext,
   isLoggedIn,
 }: {
   state: HandState;
   result: ShowdownResult;
+  coachLog: DecisionScore[];
+  sessionQuality: number | null;
   onNext: () => void;
   isLoggedIn: boolean;
 }) {
@@ -499,26 +568,60 @@ function Showdown({
     .sort((a, b) => b.won - a.won);
 
   return (
-    <div className="glass-emerald rounded-2xl p-5 text-center">
-      <div className="text-sm font-semibold uppercase tracking-wider text-emerald-200/70">
-        Resultat
+    <div className="space-y-3">
+      <div className="glass-emerald rounded-2xl p-5 text-center">
+        <div className="text-sm font-semibold uppercase tracking-wider text-emerald-200/70">
+          Resultat
+        </div>
+        <div className="mt-1 space-y-0.5">
+          {winners.map((w) => (
+            <div key={w.i} className="font-bold text-white">
+              {w.s.isHero ? "Du" : w.s.name} vinner {bb(w.won)}
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={onNext}
+          className="btn-gold mt-4 rounded-xl px-6 py-2.5 font-bold tracking-wide"
+        >
+          Neste hånd
+        </button>
       </div>
-      <div className="mt-1 space-y-0.5">
-        {winners.map((w) => (
-          <div key={w.i} className="font-bold text-white">
-            {w.s.isHero ? "Du" : w.s.name} vinner {bb(w.won)}
+
+      {/* Coaching verdict for the hand */}
+      {coachLog.length > 0 && (
+        <div className="glass rounded-2xl p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="font-bold text-white">Coaching</h3>
+            {sessionQuality !== null && (
+              <span className="text-xs text-zinc-400">
+                snitt:{" "}
+                <span className="font-semibold text-emerald-300">
+                  {sessionQuality}%
+                </span>
+              </span>
+            )}
           </div>
-        ))}
-      </div>
-      <button
-        onClick={onNext}
-        className="btn-gold mt-4 rounded-xl px-6 py-2.5 font-bold tracking-wide"
-      >
-        Neste hånd
-      </button>
+          <ul className="space-y-1.5">
+            {coachLog.map((d, i) => (
+              <li key={i} className="text-sm">
+                <span className={`font-bold ${VERDICT_META[d.verdict].color}`}>
+                  {VERDICT_META[d.verdict].label}
+                </span>{" "}
+                <span className="text-zinc-400">— {d.explanation}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-zinc-600">
+            EV er et raskt heuristisk anslag (equity + pott-odds), ikke en
+            løser — bruk det som en pekepinn.
+          </p>
+        </div>
+      )}
+
       {!isLoggedIn && (
-        <p className="mt-3 text-xs text-emerald-100/50">
-          Coaching og rangering kommer — logg inn for å lagre fremgangen din.
+        <p className="text-center text-xs text-zinc-500">
+          Logg inn for å lagre ferdighets-rangeringen din og komme på ledertavlen.
         </p>
       )}
     </div>
