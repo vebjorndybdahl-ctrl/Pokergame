@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { makeRng } from "@/lib/poker/cards";
 import {
   createHand,
@@ -494,6 +495,12 @@ function Setup({
         >
           Start spillet
         </button>
+        <Link
+          href="/trener/drills"
+          className="mt-3 block text-center text-sm font-medium text-emerald-300 hover:text-emerald-200"
+        >
+          Eller prøv scenario-drills →
+        </Link>
         {!isLoggedIn && (
           <p className="mt-3 text-center text-xs text-zinc-500">
             Du spiller som gjest. Logg inn for å lagre rangeringen din senere.

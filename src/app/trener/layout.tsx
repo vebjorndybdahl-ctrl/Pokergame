@@ -25,10 +25,10 @@ export default function TrenerLayout({
           </Link>
           <nav className="flex items-center gap-1 text-sm">
             <Link
-              href="/laer"
+              href="/trener/drills"
               className="rounded-lg px-3 py-1.5 font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white"
             >
-              Lær
+              Drills
             </Link>
             <Link
               href="/trener/ledertavle"
