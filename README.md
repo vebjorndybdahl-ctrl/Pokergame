@@ -8,6 +8,10 @@ eller minus.
 Bygget med **Next.js** (App Router) + **Supabase** (Postgres). Laget for å kjøre
 helt gratis på gratisnivåene — 0 kr/måned for et hjemmespill på 7 personer.
 
+Appen har også en **trener** under [`/trener`](#treneren-trener): spill hender mot
+boter, få coaching på hver avgjørelse, øv på faste spot, regn ut equity og klatre
+på en ferdighets-ledertavle.
+
 ## Slik fungerer det
 
 - **Ingen brukerkonto.** En serie nås via en hemmelig lenke (`/s/<token>`) eller
@@ -18,6 +22,36 @@ helt gratis på gratisnivåene — 0 kr/måned for et hjemmespill på 7 personer
 - **Hemmeligheter kun på server.** Appen snakker med databasen fra serveren med
   Supabase sin service-role-nøkkel. Med row-level security på og ingen offentlige
   policyer er en lekket anon-nøkkel verdiløs.
+
+## Treneren (`/trener`)
+
+Ved siden av regnskapet finnes en komplett **No-Limit Hold'em-trener**. Hele
+pokermotoren og matematikken ligger i [`src/lib/poker/`](src/lib/poker), og
+grensesnittet under [`src/app/trener/`](src/app/trener).
+
+- **Spillebord** ([`/trener`](src/app/trener/page.tsx)) — spill hender mot boter
+  på `Lett`, `Middels`, `Vanskelig` eller `Blandet` (hver motstander får sin egen
+  stil: hai, maniac, klippe eller stasjon). Slå på `💡 Tips` for live equity og
+  pott-odds; hver avgjørelse blir gradert.
+- **Drills** ([`/trener/drills`](src/app/trener/drills/page.tsx)) — faste spot med
+  fasit med en gang. «Riktig» svar regnes ut live fra equity + pott-odds, ikke
+  hardkodet.
+- **Range-kalkulator** ([`/trener/kalkulator`](src/app/trener/kalkulator/page.tsx))
+  — hvor godt slår hånden din en range (13×13-rutenett) eller en enkelt hånd, med
+  valgfritt bord.
+- **Ledertavle** ([`/trener/ledertavle`](src/app/trener/ledertavle/page.tsx)) —
+  rangert etter ferdighet (kvaliteten på avgjørelsene), ikke flaks eller antall
+  hender.
+
+Under panseret: en 7-korts evaluator, Monte-Carlo-equity (med range-bevisst
+motstandermodell), EV-tap-basert coaching, og en Bayesiansk ferdighets-rating.
+Ledertavla trenger tabellen `trainer_stats` — kjør migrasjonen
+[`supabase/migrations/0003_poker_trainer.sql`](supabase/migrations/0003_poker_trainer.sql)
+i Supabase SQL-editoren (i tillegg til `schema.sql`).
+
+📖 **Full teknisk dokumentasjon:** [`docs/trener.md`](docs/trener.md) — motoren,
+evaluatoren, equity, botene, scoringen, ratingen, drills, kalkulatoren og
+ledertavla, forankret i koden.
 
 ## Engangsoppsett (~5 minutter)
 
